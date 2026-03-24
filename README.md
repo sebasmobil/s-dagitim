@@ -1,1 +1,1 @@
-# s-dagitim
+# uygulama güncelleniyor
