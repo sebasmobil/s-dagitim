@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>S-Dağıtım v1.4</title>
+<title>S-Dağıtım v1.5</title>
 <style>
 /* ===== TEMA DEĞİŞKENLERİ ===== */
 :root {
@@ -444,7 +444,7 @@ textarea { resize: vertical; min-height: 60px; }
 <!-- ÜSTTE BAR -->
 <div id="top-bar">
   <div class="app-logo">📅 S-Dağıtım</div>
-  <div class="app-ver">v1.4</div>
+  <div class="app-ver">v1.5</div>
   <div class="top-spacer"></div>
   <button class="top-btn" onclick="undoAction()" title="Geri Al">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
@@ -799,6 +799,39 @@ textarea { resize: vertical; min-height: 60px; }
         <button class="btn btn-danger" onclick="resetModule('ogretmenler')">Öğretmenler Modülünü Sıfırla</button>
         <button class="btn btn-danger" onclick="resetModule('dagitim')">Dağıtımı Sıfırla</button>
         <button class="btn btn-danger" style="background:rgba(247,95,95,0.3);border:1px solid var(--danger);" onclick="resetAll()">Tüm Verileri Sıfırla</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎨 Görünüm ve Tema</div>
+      <div class="form-group">
+        <label>Renk Teması</label>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px;" id="tema-secim">
+          <div class="tema-chip" data-tema="mavi" style="background:linear-gradient(135deg,#0f1117,#4f8ef7);border-radius:8px;height:40px;cursor:pointer;border:2px solid transparent;" onclick="setTema('mavi')" title="Koyu Mavi"></div>
+          <div class="tema-chip" data-tema="mor" style="background:linear-gradient(135deg,#0f0f20,#7c5cfc);border-radius:8px;height:40px;cursor:pointer;border:2px solid transparent;" onclick="setTema('mor')" title="Koyu Mor"></div>
+          <div class="tema-chip" data-tema="yesil" style="background:linear-gradient(135deg,#0a1a10,#43d99e);border-radius:8px;height:40px;cursor:pointer;border:2px solid transparent;" onclick="setTema('yesil')" title="Koyu Yeşil"></div>
+          <div class="tema-chip" data-tema="siyah" style="background:linear-gradient(135deg,#000,#333);border-radius:8px;height:40px;cursor:pointer;border:2px solid transparent;" onclick="setTema('siyah')" title="Gece Siyahı"></div>
+          <div class="tema-chip" data-tema="acik" style="background:linear-gradient(135deg,#f0f2fb,#4f8ef7);border-radius:8px;height:40px;cursor:pointer;border:2px solid transparent;" onclick="setTema('acik')" title="Açık Tema"></div>
+          <div class="tema-chip" data-tema="bej" style="background:linear-gradient(135deg,#fef9f0,#c8a04f);border-radius:8px;height:40px;cursor:pointer;border:2px solid transparent;" onclick="setTema('bej')" title="Bej Açık"></div>
+          <div class="tema-chip" data-tema="kirmizi" style="background:linear-gradient(135deg,#1a0808,#f75f5f);border-radius:8px;height:40px;cursor:pointer;border:2px solid transparent;" onclick="setTema('kirmizi')" title="Koyu Kırmızı"></div>
+          <div class="tema-chip" data-tema="turuncu" style="background:linear-gradient(135deg,#1a1008,#f7a24f);border-radius:8px;height:40px;cursor:pointer;border:2px solid transparent;" onclick="setTema('turuncu')" title="Koyu Turuncu"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Tablo Hücre Boyutu</label>
+        <div class="chip-group">
+          <div class="chip" data-size="kucuk" onclick="setCellSize('kucuk',this)">Küçük</div>
+          <div class="chip selected" data-size="normal" onclick="setCellSize('normal',this)">Normal</div>
+          <div class="chip" data-size="buyuk" onclick="setCellSize('buyuk',this)">Büyük</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Hücre İçeriği Gösterimi</label>
+        <div class="chip-group">
+          <div class="chip selected" data-show="kod-ogr" onclick="setCellShow('kod-ogr',this)">Kod + Öğr.</div>
+          <div class="chip" data-show="ad-ogr" onclick="setCellShow('ad-ogr',this)">Ders Adı</div>
+          <div class="chip" data-show="sadece-kod" onclick="setCellShow('sadece-kod',this)">Sadece Kod</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1161,7 +1194,7 @@ textarea { resize: vertical; min-height: 60px; }
 // ===================================================================
 // VERİ YAPISI
 // ===================================================================
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 let appData = {
   settings: {
     okulAdi: '', egitimYili: '2024-2025', mudurAdi: '', mudurUnvan: 'Okul Müdürü',
@@ -1242,7 +1275,12 @@ function showPage(id) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const page = document.getElementById('page-' + id);
   const nav = document.getElementById('nav-' + id);
-  if(page) page.classList.add('active');
+  if(page) {
+    page.classList.add('active');
+    page.style.animation = 'none';
+    page.offsetHeight;
+    page.style.animation = 'fadeIn 0.2s ease';
+  }
   if(nav) nav.classList.add('active');
   if(id === 'dersler') renderDersler();
   if(id === 'siniflar') { renderSiniflar(); renderDerslikler(); }
@@ -1641,6 +1679,16 @@ function getDersSaatiForSinif(ders, sinif) {
 function openSinifModal(id = null) {
   currentEditId = id;
   document.getElementById('sinif-modal-title').textContent = id ? 'Sınıfı Düzenle' : 'Yeni Sınıf';
+  // Müsaitliği yükle
+  if(id) {
+    const s = appData.siniflar.find(x => x.id === id);
+    currentMusaitlik = s?.musaitlik ? { ...s.musaitlik } : {};
+  } else {
+    currentMusaitlik = {};
+    window._tmpSinifMusaitlik = {};
+  }
+  musaitlikTargetId = id;
+  musaitlikTargetType = 'sinif';
   // Ders seçim chipleri doldur
   const chipGroup = document.getElementById('sinif-ders-secim');
   chipGroup.innerHTML = '';
@@ -1710,7 +1758,7 @@ function saveSinif() {
       duzey, sube, ad: duzey + sube,
       gunSaat, grup,
       dersler: secilenDersler,
-      musaitlik: currentEditId ? (appData.siniflar.find(x=>x.id===currentEditId)?.musaitlik || {}) : {}
+      musaitlik: currentEditId ? (appData.siniflar.find(x=>x.id===currentEditId)?.musaitlik || {}) : (window._tmpSinifMusaitlik || {})
     };
     if(currentEditId) {
       const i = appData.siniflar.findIndex(x => x.id === currentEditId);
@@ -2227,10 +2275,14 @@ function saveMusaitlik() {
       const ogr = appData.ogretmenler.find(x => x.id === musaitlikTargetId);
       if(ogr) { ogr.musaitlik = { ...currentMusaitlik }; saveToStorage(); }
     }
-    // Modal içinde düzenliyorsak (currentEditId aracılığıyla) zaten tempte saklanıyor
   } else if(musaitlikTargetType === 'sinif') {
-    const sinif = appData.siniflar.find(x => x.id === musaitlikTargetId);
-    if(sinif) { sinif.musaitlik = { ...currentMusaitlik }; saveToStorage(); }
+    if(musaitlikTargetId) {
+      const sinif = appData.siniflar.find(x => x.id === musaitlikTargetId);
+      if(sinif) { sinif.musaitlik = { ...currentMusaitlik }; saveToStorage(); }
+    } else {
+      // Yeni sınıf için geçici sakla — saveSinif içinde kullanılacak
+      window._tmpSinifMusaitlik = { ...currentMusaitlik };
+    }
   }
   showToast('Müsaitlik kaydedildi ✅', 'success');
   closeModal('musaitlik-modal');
@@ -2844,6 +2896,7 @@ function clickDagitimCell(sinifId, key) {
       <option value="">— Yok —</option>
       ${ogretmenler2Html}
     </select>
+    <div id="tmp-derslik-area"></div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);font-weight:600;margin:0;">
         <input type="checkbox" id="tmp-kilit" ${mevcut?.kilitli?'checked':''}> Kilitle
@@ -2862,6 +2915,23 @@ function clickDagitimCell(sinifId, key) {
   if(curVal) {
     const sel = document.getElementById('tmp-cell-sel');
     sel.value = curVal;
+    // Derslik seçeneklerini göster
+    const [did] = curVal.split('|');
+    const derslikHtml = getDerslikOptionsForDers(did);
+    const area = document.getElementById('tmp-derslik-area');
+    if(area) area.innerHTML = derslikHtml;
+    // Mevcut dersliği seç
+    if(mevcut?.derslikId) {
+      setTimeout(() => {
+        const dsel = document.getElementById('tmp-derslik-sel');
+        if(dsel) dsel.value = mevcut.derslikId;
+      }, 50);
+    }
+    // Ders değişince derslik seçeneklerini güncelle
+    sel.addEventListener('change', () => {
+      const [d] = sel.value.split('|');
+      if(area) area.innerHTML = getDerslikOptionsForDers(d);
+    });
   }
   if(curVal2) {
     document.getElementById('tmp-cell-sel2').value = curVal2;
@@ -2874,6 +2944,7 @@ function saveCellEntry(sinifId, key, btn) {
   const val2 = document.getElementById('tmp-cell-sel2').value;
   const kilitli = document.getElementById('tmp-kilit').checked;
   const manuel = document.getElementById('tmp-manuel').checked;
+  const derslikId = document.getElementById('tmp-derslik-sel')?.value || null;
 
   if(!appData.dagitim[sinifId]) appData.dagitim[sinifId] = {};
 
@@ -2888,6 +2959,7 @@ function saveCellEntry(sinifId, key, btn) {
     appData.dagitim[sinifId][key] = {
       dersId, ogretmenId,
       ogretmenId2: val2 || null,
+      derslikId: derslikId || null,
       manuel, kilitli
     };
   }
@@ -3416,58 +3488,89 @@ function generateTopluSinifCarsaf(siniflar = appData.siniflar) {
   const settings = appData.settings;
   const win = window.open('', '_blank');
 
-  // Her sınıf için tablo - Yatay A4, gün/saat başlık
-  let allRows = '';
-  siniflar.forEach(sinif => {
+  // Her sınıf için ayrı bölüm — her sayfada başlık tekrarlar
+  let sections = '';
+  siniflar.forEach((sinif, idx) => {
     const maxSaat = sinif.gunSaat || settings.maxSaat;
     const dagitim = appData.dagitim[sinif.id] || {};
 
-    // Başlık satırı: sınıf adı
-    allRows += `<tr style="background:#e8eaf0;"><td colspan="${gunler.length+1}" style="font-weight:800;font-size:11px;padding:4px 6px;">${sinif.ad} - ${sinif.duzey}. Sınıf ${sinif.sube} Şubesi</td></tr>`;
-
+    let rows = '';
     for(let s = 1; s <= maxSaat; s++) {
-      let row = `<td style="background:#f0f2f8;font-weight:700;font-size:9px;padding:4px 6px;white-space:nowrap;">${s}. Saat</td>`;
+      let row = `<td class="saat-col">${s}.</td>`;
       gunler.forEach(g => {
         const cell = dagitim[`${g}-${s}`];
         if(cell?.dersId) {
           const d = appData.dersler.find(x => x.id === cell.dersId);
           const o = appData.ogretmenler.find(x => x.id === cell.ogretmenId);
-          row += `<td style="padding:4px;text-align:center;font-size:9px;border:1px solid #ccc;">
-            <strong>${d?.kod || ''}</strong><br><span style="color:#555;">${o?.adSoyad || ''}</span>
+          const o2 = cell.ogretmenId2 ? appData.ogretmenler.find(x => x.id === cell.ogretmenId2) : null;
+          row += `<td class="cell-dolu">
+            <div class="ders-adi">${d?.ad || d?.kod || '?'}</div>
+            <div class="ogr-adi">${o?.adSoyad || '?'}${o2 ? ' / '+o2.adSoyad : ''}</div>
           </td>`;
         } else {
-          row += `<td style="border:1px solid #ddd;"></td>`;
+          const isBlocked = (sinif.musaitlik || {})[`${g}-${s}`] === false;
+          row += `<td class="${isBlocked ? 'cell-kapali' : 'cell-bos'}"></td>`;
         }
       });
-      allRows += `<tr>${row}</tr>`;
+      rows += `<tr>${row}</tr>`;
     }
-    allRows += '<tr><td colspan="' + (gunler.length+1) + '" style="height:8px;"></td></tr>';
+
+    sections += `
+    <div class="sinif-section${idx > 0 ? ' page-break' : ''}">
+      <table>
+        <thead>
+          <tr class="baslik-row">
+            <td colspan="${gunler.length+1}" class="sinif-baslik">
+              ${sinif.ad} — ${sinif.duzey}. Sınıf ${sinif.sube} Şubesi
+              <span style="font-weight:400;font-size:9px;margin-left:10px;">${sinif.grup === 'tam' ? 'Tam Gün' : sinif.grup === 'sabah' ? 'Sabah' : 'Öğleden Sonra'} · ${maxSaat} ders/gün</span>
+            </td>
+          </tr>
+          <tr class="gun-row">
+            <th class="saat-th">Saat</th>
+            ${gunler.map(g => `<th>${g}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
   });
 
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
-    @page { size: A4 landscape; margin: 10mm; }
-    body { font-family: Arial, sans-serif; font-size: 10px; }
-    h1 { text-align: center; font-size: 13px; margin-bottom: 2px; }
-    h2 { text-align: center; font-size: 10px; font-weight: normal; margin-bottom: 8px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #bbb; padding: 3px 5px; }
-    th { background: #e8eaf0; font-size: 9px; text-align: center; }
-    .footer { margin-top: 15px; text-align: right; font-size: 9px; }
-    @media print { .no-print { display: none; } }
+    @page { size: A4 landscape; margin: 8mm 8mm 12mm 8mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 10px; color: #222; }
+    .doc-header { text-align: center; margin-bottom: 8px; border-bottom: 2px solid #333; padding-bottom: 6px; }
+    .doc-title { font-size: 14px; font-weight: 800; }
+    .doc-sub { font-size: 10px; color: #555; margin-top: 2px; }
+    .sinif-section { margin-bottom: 10px; }
+    .page-break { page-break-before: always; padding-top: 8px; }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    th, td { border: 1px solid #aaa; padding: 3px 4px; vertical-align: middle; }
+    .sinif-baslik { background: #1e2336; color: #fff; font-size: 11px; font-weight: 800; padding: 5px 8px; text-align: left; }
+    .gun-row th { background: #e8eaf0; font-size: 9px; font-weight: 700; text-align: center; }
+    .saat-col { background: #f0f2f8; font-weight: 700; font-size: 9px; text-align: center; width: 28px; white-space: nowrap; }
+    .saat-th { background: #f0f2f8; width: 28px; }
+    .cell-dolu { text-align: center; padding: 2px; }
+    .ders-adi { font-size: 9px; font-weight: 700; color: #2255cc; }
+    .ogr-adi { font-size: 8px; color: #444; }
+    .cell-bos { background: #fafafa; }
+    .cell-kapali { background: #f0f0f0; }
+    .footer { margin-top: 12px; display: flex; justify-content: space-between; font-size: 9px; color: #555; border-top: 1px solid #ccc; padding-top: 6px; }
+    .no-print { display: none; }
+    @media screen { .no-print { display: block; } body { background: #f5f5f5; padding: 20px; } .sinif-section { background: #fff; padding: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 16px; } }
   </style></head><body>
-  <h1>${settings.okulAdi || 'Okul Adı'}</h1>
-  <h2>${settings.egitimYili || ''} Eğitim Öğretim Yılı — Sınıf Ders Programı Çarşafı</h2>
-  <table>
-    <thead><tr>
-      <th style="min-width:55px;">Saat</th>
-      ${gunler.map(g => `<th>${g}</th>`).join('')}
-    </tr></thead>
-    <tbody>${allRows}</tbody>
-  </table>
-  <div class="footer">${settings.mudurAdi || ''}<br>${settings.mudurUnvan || 'Okul Müdürü'}</div>
-  <div class="no-print" style="margin-top:16px;text-align:center;">
-    <button onclick="window.print()" style="padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;">🖨️ Yazdır / PDF Kaydet</button>
+  <div class="doc-header">
+    <div class="doc-title">${settings.okulAdi || 'Okul Adı'}</div>
+    <div class="doc-sub">${settings.egitimYili || '2024-2025'} Eğitim Öğretim Yılı — Sınıf Ders Programları Çarşafı</div>
+  </div>
+  ${sections}
+  <div class="footer">
+    <div>Bu program bilgisayar tarafından otomatik oluşturulmuştur.</div>
+    <div>${settings.mudurAdi || ''} — ${settings.mudurUnvan || 'Okul Müdürü'}</div>
+  </div>
+  <div class="no-print" style="margin-top:20px;text-align:center;">
+    <button onclick="window.print()" style="padding:12px 28px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:700;">🖨️ Yazdır / PDF Kaydet</button>
   </div>
   </body></html>`);
   win.document.close();
@@ -3479,12 +3582,12 @@ function generateTopluOgrCarsaf(ogretmenler = appData.ogretmenler) {
   const maxSaat = settings.maxSaat;
   const win = window.open('', '_blank');
 
-  let allRows = '';
-  ogretmenler.forEach(ogr => {
-    allRows += `<tr style="background:#e8eaf0;"><td colspan="${gunler.length+1}" style="font-weight:800;font-size:11px;padding:4px 6px;">${ogr.adSoyad} — ${ogr.brans || ''}</td></tr>`;
-
+  let sections = '';
+  ogretmenler.forEach((ogr, idx) => {
+    let rows = '';
+    let toplamSaat = 0;
     for(let s = 1; s <= maxSaat; s++) {
-      let row = `<td style="background:#f0f2f8;font-weight:700;font-size:9px;padding:4px 6px;white-space:nowrap;">${s}. Saat</td>`;
+      let row = `<td class="saat-col">${s}.</td>`;
       gunler.forEach(g => {
         const key = `${g}-${s}`;
         let found = null;
@@ -3492,43 +3595,71 @@ function generateTopluOgrCarsaf(ogretmenler = appData.ogretmenler) {
           const cell = (appData.dagitim[sinif.id] || {})[key];
           if(cell && (cell.ogretmenId === ogr.id || cell.ogretmenId2 === ogr.id)) found = { sinif, cell };
         });
+        const isBlocked = (ogr.musaitlik || {})[key] === false || ogr.yasakGun?.includes(g);
         if(found) {
           const d = appData.dersler.find(x => x.id === found.cell.dersId);
-          row += `<td style="padding:4px;text-align:center;font-size:9px;border:1px solid #ccc;">
-            <strong>${found.sinif.ad}</strong><br><span style="color:#555;">${d?.ad || ''}</span>
+          toplamSaat++;
+          row += `<td class="cell-dolu">
+            <div class="sinif-adi">${found.sinif.ad}</div>
+            <div class="ders-adi2">${d?.ad || d?.kod || '?'}</div>
           </td>`;
         } else {
-          row += `<td style="border:1px solid #ddd;"></td>`;
+          row += `<td class="${isBlocked ? 'cell-kapali' : 'cell-bos'}"></td>`;
         }
       });
-      allRows += `<tr>${row}</tr>`;
+      rows += `<tr>${row}</tr>`;
     }
-    allRows += '<tr><td colspan="' + (gunler.length+1) + '" style="height:8px;"></td></tr>';
+    sections += `
+    <div class="sinif-section${idx > 0 ? ' page-break' : ''}">
+      <table>
+        <thead>
+          <tr><td colspan="${gunler.length+1}" class="sinif-baslik">
+            ${ogr.adSoyad} — ${ogr.brans || ''} &nbsp;|&nbsp; ${ogr.unvan || 'Öğretmen'}
+            <span style="font-weight:400;font-size:9px;margin-left:10px;">${toplamSaat} saat/hafta</span>
+          </td></tr>
+          <tr class="gun-row"><th class="saat-th">Saat</th>${gunler.map(g=>`<th>${g}</th>`).join('')}</tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
   });
 
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
-    @page { size: A4 landscape; margin: 10mm; }
-    body { font-family: Arial, sans-serif; font-size: 10px; }
-    h1 { text-align: center; font-size: 13px; margin-bottom: 2px; }
-    h2 { text-align: center; font-size: 10px; font-weight: normal; margin-bottom: 8px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #bbb; padding: 3px 5px; }
-    th { background: #e8eaf0; font-size: 9px; text-align: center; }
-    .footer { margin-top: 15px; text-align: right; font-size: 9px; }
+    @page { size: A4 landscape; margin: 8mm 8mm 12mm 8mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 10px; color: #222; }
+    .doc-header { text-align: center; margin-bottom: 8px; border-bottom: 2px solid #333; padding-bottom: 6px; }
+    .doc-title { font-size: 14px; font-weight: 800; }
+    .doc-sub { font-size: 10px; color: #555; margin-top: 2px; }
+    .sinif-section { margin-bottom: 10px; }
+    .page-break { page-break-before: always; padding-top: 8px; }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    th, td { border: 1px solid #aaa; padding: 3px 4px; vertical-align: middle; }
+    .sinif-baslik { background: #1e3a5f; color: #fff; font-size: 11px; font-weight: 800; padding: 5px 8px; text-align: left; }
+    .gun-row th { background: #e8eaf0; font-size: 9px; font-weight: 700; text-align: center; }
+    .saat-col { background: #f0f2f8; font-weight: 700; font-size: 9px; text-align: center; width: 28px; }
+    .saat-th { background: #f0f2f8; width: 28px; }
+    .cell-dolu { text-align: center; padding: 2px; }
+    .sinif-adi { font-size: 9px; font-weight: 800; color: #c040a0; }
+    .ders-adi2 { font-size: 8px; color: #444; }
+    .cell-bos { background: #fafafa; }
+    .cell-kapali { background: repeating-linear-gradient(45deg, #f0f0f0, #f0f0f0 3px, #fff 3px, #fff 6px); }
+    .footer { margin-top: 12px; display: flex; justify-content: space-between; font-size: 9px; color: #555; border-top: 1px solid #ccc; padding-top: 6px; }
+    .no-print { display: none; }
+    @media screen { .no-print { display: block; } body { background: #f5f5f5; padding: 20px; } .sinif-section { background: #fff; padding: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 16px; } }
   </style></head><body>
-  <h1>${settings.okulAdi || 'Okul Adı'}</h1>
-  <h2>${settings.egitimYili || ''} Eğitim Öğretim Yılı — Öğretmen Ders Programı Çarşafı</h2>
-  <table>
-    <thead><tr>
-      <th>Saat</th>
-      ${gunler.map(g => `<th>${g}</th>`).join('')}
-    </tr></thead>
-    <tbody>${allRows}</tbody>
-  </table>
-  <div class="footer">${settings.mudurAdi || ''}<br>${settings.mudurUnvan || 'Okul Müdürü'}</div>
-  <div style="margin-top:16px;text-align:center;">
-    <button onclick="window.print()" style="padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;">🖨️ Yazdır / PDF Kaydet</button>
+  <div class="doc-header">
+    <div class="doc-title">${settings.okulAdi || 'Okul Adı'}</div>
+    <div class="doc-sub">${settings.egitimYili || '2024-2025'} Eğitim Öğretim Yılı — Öğretmen Ders Programları Çarşafı</div>
+  </div>
+  ${sections}
+  <div class="footer">
+    <div>Bu program bilgisayar tarafından otomatik oluşturulmuştur.</div>
+    <div>${settings.mudurAdi || ''} — ${settings.mudurUnvan || 'Okul Müdürü'}</div>
+  </div>
+  <div class="no-print" style="margin-top:20px;text-align:center;">
+    <button onclick="window.print()" style="padding:12px 28px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:700;">🖨️ Yazdır / PDF Kaydet</button>
   </div>
   </body></html>`);
   win.document.close();
@@ -4109,11 +4240,25 @@ function loadSettings() {
   document.getElementById('mudur-unvan').value = s.mudurUnvan || '';
   document.getElementById('max-saat').value = s.maxSaat || 8;
   document.getElementById('haftalik-saat').value = s.haftalikSaat || 40;
-  
+
   document.querySelectorAll('#gun-secim .chip').forEach(chip => {
     const gun = chip.dataset.gun;
     chip.classList.toggle('selected', s.gunler.includes(gun));
   });
+
+  // Tema chip'ini işaretle
+  const t = s.tema || 'mavi';
+  document.querySelectorAll('.tema-chip').forEach(c => {
+    c.style.border = c.dataset.tema === t ? '2px solid var(--accent)' : '2px solid transparent';
+  });
+  // Hücre boyutu chip
+  const cs = s.cellSize || 'normal';
+  document.querySelectorAll('[data-size]').forEach(c => c.classList.toggle('selected', c.dataset.size === cs));
+  cellSize = cs;
+  // Hücre gösterim
+  const csh = s.cellShow || 'kod-ogr';
+  document.querySelectorAll('[data-show]').forEach(c => c.classList.toggle('selected', c.dataset.show === csh));
+  cellShow = csh;
 }
 
 function saveSettings() {
@@ -5239,6 +5384,198 @@ document.addEventListener('DOMContentLoaded', () => {
       ayarCard.appendChild(btn);
     }
   }, 400);
+});
+
+// ===================================================================
+// RENK TEMASI SİSTEMİ
+// ===================================================================
+const TEMALAR = {
+  mavi:    { '--bg':'#0f1117','--bg2':'#181c27','--bg3':'#1e2336','--card':'#232840','--border':'#2e3454','--accent':'#4f8ef7','--accent2':'#7c5cfc','--text':'#e8ecf8','--text2':'#8b93b8','--text3':'#535878' },
+  mor:     { '--bg':'#0d0a1a','--bg2':'#14102b','--bg3':'#1c1840','--card':'#221e50','--border':'#332a70','--accent':'#7c5cfc','--accent2':'#b05af7','--text':'#ede8ff','--text2':'#9080c8','--text3':'#504878' },
+  yesil:   { '--bg':'#071510','--bg2':'#0d2018','--bg3':'#122b1e','--card':'#163525','--border':'#1e5035','--accent':'#43d99e','--accent2':'#2ad4c8','--text':'#e0fff4','--text2':'#68b89a','--text3':'#386050' },
+  siyah:   { '--bg':'#000000','--bg2':'#111111','--bg3':'#1a1a1a','--card':'#222222','--border':'#333333','--accent':'#4f8ef7','--accent2':'#7c5cfc','--text':'#f0f0f0','--text2':'#888888','--text3':'#444444' },
+  acik:    { '--bg':'#f0f2fb','--bg2':'#ffffff','--bg3':'#e8eaf6','--card':'#ffffff','--border':'#d0d4e8','--accent':'#4f8ef7','--accent2':'#7c5cfc','--text':'#1a1e35','--text2':'#555f8a','--text3':'#9ca3c4' },
+  bej:     { '--bg':'#fef9f0','--bg2':'#fffcf5','--bg3':'#f5eedc','--card':'#fffdf8','--border':'#e0d0b0','--accent':'#c8803a','--accent2':'#c8a04f','--text':'#2a1f0a','--text2':'#6b5030','--text3':'#b09060' },
+  kirmizi: { '--bg':'#150808','--bg2':'#200f0f','--bg3':'#2a1414','--card':'#311818','--border':'#4a2020','--accent':'#f75f5f','--accent2':'#f7a24f','--text':'#ffe8e8','--text2':'#c08080','--text3':'#704040' },
+  turuncu: { '--bg':'#150f05','--bg2':'#1e1508','--bg3':'#2a1e0a','--card':'#30220c','--border':'#4a3315','--accent':'#f7a24f','--accent2':'#f7c94f','--text':'#fff3e0','--text2':'#c09050','--text3':'#705030' },
+};
+
+function setTema(temaAdi) {
+  const tema = TEMALAR[temaAdi];
+  if(!tema) return;
+  const root = document.documentElement.style;
+  Object.entries(tema).forEach(([k, v]) => root.setProperty(k, v));
+  // Açık tema data-theme
+  if(temaAdi === 'acik' || temaAdi === 'bej') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+  localStorage.setItem('sdagitim_tema', temaAdi);
+  // Seçili chip'i işaretle
+  document.querySelectorAll('.tema-chip').forEach(c => {
+    c.style.border = c.dataset.tema === temaAdi ? '2px solid var(--accent)' : '2px solid transparent';
+  });
+  appData.settings.tema = temaAdi;
+  saveToStorage();
+  showToast(`🎨 ${temaAdi.charAt(0).toUpperCase() + temaAdi.slice(1)} teması uygulandı`);
+}
+
+function loadTema() {
+  const t = appData.settings.tema || localStorage.getItem('sdagitim_tema') || 'mavi';
+  setTema(t);
+}
+
+// Hücre boyutu
+const CELL_SIZES = {
+  kucuk: 'height:28px;',
+  normal: 'height:38px;',
+  buyuk: 'height:52px;',
+};
+let cellSize = 'normal';
+let cellShow = 'kod-ogr';
+
+function setCellSize(size, chip) {
+  cellSize = size;
+  document.querySelectorAll('[data-size]').forEach(c => c.classList.remove('selected'));
+  if(chip) chip.classList.add('selected');
+  localStorage.setItem('sdagitim_cellsize', size);
+  const sinifId = document.getElementById('dagitim-sinif-select')?.value;
+  if(sinifId) renderDagitimTable(sinifId);
+  appData.settings.cellSize = size;
+  saveToStorage();
+}
+
+function setCellShow(show, chip) {
+  cellShow = show;
+  document.querySelectorAll('[data-show]').forEach(c => c.classList.remove('selected'));
+  if(chip) chip.classList.add('selected');
+  localStorage.setItem('sdagitim_cellshow', show);
+  const sinifId = document.getElementById('dagitim-sinif-select')?.value;
+  if(sinifId) renderDagitimTable(sinifId);
+  appData.settings.cellShow = show;
+  saveToStorage();
+}
+
+// ===================================================================
+// DERSLİK ATAMA — CELL MODAL'DA
+// ===================================================================
+function getDerslikOptionsForDers(dersId) {
+  if(!appData.derslikler.length) return '';
+  const uygunDerslikler = appData.derslikler.filter(dl =>
+    !dl.dersler?.length || dl.dersler.includes(dersId)
+  );
+  if(!uygunDerslikler.length) return '';
+  return `<label style="font-size:12px;color:var(--text2);font-weight:600;margin-top:8px;display:block;">Derslik (opsiyonel)</label>
+  <select id="tmp-derslik-sel" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px;margin-bottom:8px;font-size:13px;">
+    <option value="">— Derslik Seçme —</option>
+    ${uygunDerslikler.map(dl => `<option value="${dl.id}">${dl.ad}${dl.kapasite?' ('+dl.kapasite+' kişi)':''}</option>`).join('')}
+  </select>`;
+}
+
+// ===================================================================
+// DAĞITIM TABLOSU CELL BOYUTUNU UYGULA
+// ===================================================================
+document.addEventListener('DOMContentLoaded', () => {
+  loadTema();
+  cellSize = appData.settings.cellSize || localStorage.getItem('sdagitim_cellsize') || 'normal';
+  cellShow = appData.settings.cellShow || localStorage.getItem('sdagitim_cellshow') || 'kod-ogr';
+});
+
+// ===================================================================
+// GELİŞMİŞ ÇAKIŞMA RAPORU
+// ===================================================================
+function generateCakismaRaporu() {
+  const gunler = appData.settings.gunler;
+  const maxSaat = appData.settings.maxSaat;
+  const cakismalar = [];
+
+  // Her saat için tüm öğretmenlerin birden fazla yerde olup olmadığını kontrol et
+  gunler.forEach(gun => {
+    for(let saat = 1; saat <= maxSaat; saat++) {
+      const key = `${gun}-${saat}`;
+      const ogrMap = {}; // ogrId -> [sinifAd]
+
+      appData.siniflar.forEach(sinif => {
+        const cell = (appData.dagitim[sinif.id] || {})[key];
+        if(!cell?.dersId) return;
+        [cell.ogretmenId, cell.ogretmenId2].filter(Boolean).forEach(ogrId => {
+          if(!ogrMap[ogrId]) ogrMap[ogrId] = [];
+          ogrMap[ogrId].push(sinif.ad);
+        });
+      });
+
+      Object.entries(ogrMap).forEach(([ogrId, siniflar]) => {
+        if(siniflar.length > 1) {
+          const ogr = appData.ogretmenler.find(x => x.id === ogrId);
+          cakismalar.push({
+            gun, saat, ogrAd: ogr?.adSoyad || ogrId,
+            siniflar, tip: 'ÖĞRETMEN'
+          });
+        }
+      });
+
+      // Aynı anda aynı sınıfın iki farklı yerde (çift kayıt)
+      const sinifMap = {};
+      appData.siniflar.forEach(sinif => {
+        const cells = Object.entries(appData.dagitim[sinif.id] || {}).filter(([k]) => k === key);
+        if(cells.length > 1) {
+          cakismalar.push({ gun, saat, sinifAd: sinif.ad, tip: 'SINIF_CIFT' });
+        }
+      });
+    }
+  });
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:3000;display:flex;align-items:flex-end;';
+
+  let icerik = '';
+  if(cakismalar.length === 0) {
+    icerik = `<div style="text-align:center;padding:24px;color:var(--success);">
+      <div style="font-size:32px;">✅</div>
+      <div style="font-size:14px;font-weight:700;margin-top:8px;">Çakışma bulunamadı!</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px;">Dağıtım tutarlı görünüyor.</div>
+    </div>`;
+  } else {
+    icerik = `<div style="margin-bottom:8px;font-size:12px;color:var(--danger);font-weight:700;">⚠️ ${cakismalar.length} çakışma tespit edildi:</div>` +
+      cakismalar.map(c => `<div style="padding:8px;background:rgba(247,95,95,0.08);border:1px solid rgba(247,95,95,0.2);border-radius:8px;margin-bottom:6px;font-size:11px;">
+        <span style="font-weight:700;color:var(--danger);">${c.tip === 'ÖĞRETMEN' ? '👨‍🏫 ÖĞRETMEN' : '🏫 SINIF'} ÇAKIŞMASI</span>
+        <div style="margin-top:3px;color:var(--text2);">
+          ${c.gun} ${c.saat}. saat —
+          ${c.tip === 'ÖĞRETMEN'
+            ? `<b>${c.ogrAd}</b> aynı anda: ${c.siniflar.join(' + ')}`
+            : `<b>${c.sinifAd}</b> aynı anda çift kayıt`
+          }
+        </div>
+      </div>`).join('');
+  }
+
+  modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:80vh;overflow-y:auto;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:12px;">🔍 Çakışma Raporu</div>
+    ${icerik}
+    <button class="btn btn-secondary btn-full" style="margin-top:10px;" onclick="this.closest('[style*=inset]').remove()">Kapat</button>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+// Dağıtım sayfasına çakışma raporu butonu ekle
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    const dagitimPanel = document.getElementById('dagitim-sinif-panel');
+    if(dagitimPanel) {
+      const existBtn = document.getElementById('cakisma-btn');
+      if(!existBtn) {
+        const btn = document.createElement('button');
+        btn.id = 'cakisma-btn';
+        btn.className = 'btn btn-secondary btn-sm';
+        btn.style.cssText = 'width:100%;margin-bottom:6px;';
+        btn.innerHTML = '🔍 Çakışma Kontrolü';
+        btn.onclick = generateCakismaRaporu;
+        const statsEl = document.getElementById('dagitim-stats');
+        if(statsEl) statsEl.parentNode.insertBefore(btn, statsEl);
+      }
+    }
+  }, 500);
 });
 
 </script>
