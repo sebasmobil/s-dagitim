@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>S-Dağıtım v1.5</title>
+<title>S-Dağıtım v1.6</title>
 <style>
 /* ===== TEMA DEĞİŞKENLERİ ===== */
 :root {
@@ -444,7 +444,7 @@ textarea { resize: vertical; min-height: 60px; }
 <!-- ÜSTTE BAR -->
 <div id="top-bar">
   <div class="app-logo">📅 S-Dağıtım</div>
-  <div class="app-ver">v1.5</div>
+  <div class="app-ver">v1.6</div>
   <div class="top-spacer"></div>
   <button class="top-btn" onclick="undoAction()" title="Geri Al">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
@@ -950,6 +950,16 @@ textarea { resize: vertical; min-height: 60px; }
       </div>
       <div class="form-group">
         <label>Bu Sınıfın Dersleri (Toplu Seçim)</label>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;">
+            <div class="progress-bar"><div class="progress-fill" id="sinif-saat-progress" style="width:0%;background:var(--success);"></div></div>
+          </div>
+          <span id="sinif-saat-gostergesi" style="font-size:11px;font-weight:700;color:var(--text2);white-space:nowrap;">0/0 saat</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+          <button class="btn btn-secondary btn-sm" onclick="selectAllSinifDersler(true)">Tümünü Seç</button>
+          <button class="btn btn-secondary btn-sm" onclick="selectAllSinifDersler(false)">Temizle</button>
+        </div>
         <div id="sinif-ders-secim" class="chip-group"></div>
       </div>
     </div>
@@ -1033,11 +1043,19 @@ textarea { resize: vertical; min-height: 60px; }
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="flex:1;font-size:12px;">Günlük Max Boşluk (saat)</span>
-            <input type="number" id="o-max-bosluk" placeholder="1" min="0" max="5" style="width:60px;">
+            <input type="number" id="o-max-bosluk" placeholder="—" min="0" max="5" style="width:60px;">
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="flex:1;font-size:12px;">Max Gün Sayısı (ders dağılımı)</span>
-            <input type="number" id="o-max-gun" placeholder="5" min="1" max="7" style="width:60px;">
+            <input type="number" id="o-max-gun" placeholder="—" min="1" max="7" style="width:60px;">
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="flex:1;font-size:12px;">Günlük Max Ders Saati</span>
+            <input type="number" id="o-max-gunluk" placeholder="—" min="1" max="12" style="width:60px;">
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="flex:1;font-size:12px;">İlk Dersi En Erken Saat</span>
+            <input type="number" id="o-ilk-saat-min" placeholder="1" min="1" max="8" style="width:60px;">
           </div>
         </div>
       </div>
@@ -1194,7 +1212,7 @@ textarea { resize: vertical; min-height: 60px; }
 // ===================================================================
 // VERİ YAPISI
 // ===================================================================
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.6';
 let appData = {
   settings: {
     okulAdi: '', egitimYili: '2024-2025', mudurAdi: '', mudurUnvan: 'Okul Müdürü',
@@ -1324,38 +1342,14 @@ function switchProgTab(tab, btn) {
   if(tab === 'derslik') renderProgDerslik();
 }
 
-function renderProgDerslik() {
-  const container = document.getElementById('prog-list-derslik');
-  if(!appData.derslikler.length) {
-    container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Henüz derslik eklenmedi. Sınıflar → Derslikler sekmesinden ekleyin.</div>';
-    return;
-  }
-  const gunler = appData.settings.gunler;
-  const maxSaat = appData.settings.maxSaat;
-  container.innerHTML = '';
-  appData.derslikler.forEach(dl => {
-    const el = document.createElement('div');
-    el.className = 'card';
-    el.style.marginBottom = '8px';
-    el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleDerslikProg(this,'${dl.id}')">
-        <div style="font-size:22px;">🔬</div>
-        <div style="flex:1;">
-          <div style="font-size:13px;font-weight:700;">${dl.ad}</div>
-          <div style="font-size:11px;color:var(--text2);">${dl.kapasite ? dl.kapasite + ' kişilik' : ''}</div>
-        </div>
-        <span style="font-size:10px;color:var(--accent);">▼ Görüntüle</span>
-      </div>
-      <div id="derslik-prog-${dl.id}" style="display:none;margin-top:10px;overflow-x:auto;"></div>`;
-    container.appendChild(el);
-  });
-}
+function renderProgDerslik() { renderDerslikOzet(); }
 
 function toggleDerslikProg(header, derslikId) {
   const detail = document.getElementById(`derslik-prog-${derslikId}`);
+  if(!detail) return;
   if(detail.style.display === 'none') {
     detail.style.display = '';
-    detail.innerHTML = buildDerslikMiniTable(derslikId);
+    if(!detail.innerHTML.trim()) detail.innerHTML = buildDerslikMiniTable(derslikId);
   } else {
     detail.style.display = 'none';
   }
@@ -1917,6 +1911,8 @@ function openOgretmenModal(id = null) {
   document.getElementById('o-yasak-gun').value = '';
   document.getElementById('o-max-bosluk').value = '';
   document.getElementById('o-max-gun').value = '';
+  document.getElementById('o-max-gunluk').value = '';
+  if(document.getElementById('o-ilk-saat-min')) document.getElementById('o-ilk-saat-min').value = '';
 
   // Yasak gün chip'lerini oluştur
   const yasakGunChips = document.getElementById('o-yasak-gun-chips');
@@ -1938,6 +1934,8 @@ function openOgretmenModal(id = null) {
       document.getElementById('o-unvan').value = o.unvan || 'Öğretmen';
       document.getElementById('o-max-bosluk').value = o.maxBosluk ?? '';
       document.getElementById('o-max-gun').value = o.maxGun ?? '';
+      if(document.getElementById('o-max-gunluk')) document.getElementById('o-max-gunluk').value = o.maxGunlukSaat ?? '';
+      if(document.getElementById('o-ilk-saat-min')) document.getElementById('o-ilk-saat-min').value = o.ilkSaatMin ?? '';
     }
   }
   renderOgrDersList(window._tmpOgrDersList);
@@ -2039,6 +2037,8 @@ function saveOgretmen() {
     const yasakGun = yasakGunRaw ? yasakGunRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
     const maxBosluk = parseInt(document.getElementById('o-max-bosluk').value);
     const maxGun = parseInt(document.getElementById('o-max-gun').value);
+    const maxGunlukSaat = parseInt(document.getElementById('o-max-gunluk')?.value);
+    const ilkSaatMin = parseInt(document.getElementById('o-ilk-saat-min')?.value);
     const atananDersler = window._tmpOgrDersList || [];
 
     // Mevcut müsaitliği koru (modal içinde değiştirilemediyse)
@@ -2053,6 +2053,8 @@ function saveOgretmen() {
       brans, unvan, yasakGun,
       maxBosluk: isNaN(maxBosluk) ? null : maxBosluk,
       maxGun: isNaN(maxGun) ? null : maxGun,
+      maxGunlukSaat: isNaN(maxGunlukSaat) ? null : maxGunlukSaat,
+      ilkSaatMin: isNaN(ilkSaatMin) ? null : ilkSaatMin,
       atananDersler,
       musaitlik: mevcutMusaitlik
     };
@@ -2445,26 +2447,48 @@ function renderDagitimTable(sinifId) {
       const isLocked = cell?.kilitli;
       const isBroken = cell?.blokunBozuldu;
       const isTwo = cell?.ogretmenId2;
+      const isBlocked = !cell && (sinif?.musaitlik || {})[key] === false;
       let cls = 'cell-content';
       if(isManuel) cls += ' manual';
       if(isLocked) cls += ' locked';
       if(isBroken) cls += ' block-broken';
       if(isTwo) cls += ' two-teacher';
+      if(isBlocked) cls += ' blocked';
+
+      // Hücre boyutu
+      const heightMap = { kucuk: '28px', normal: '38px', buyuk: '52px' };
+      const cellH = heightMap[cellSize] || '38px';
 
       let cellHtml = '';
       if(cell?.dersId) {
-        const dersKod = getDersKod(cell.dersId);
+        const ders = appData.dersler.find(x => x.id === cell.dersId);
         const ogrKisa = getOgrKisa(cell.ogretmenId);
         const ogr2Kisa = cell.ogretmenId2 ? getOgrKisa(cell.ogretmenId2) : '';
-        cellHtml = `<span class="cell-lesson">${dersKod}</span>
-          <span class="cell-teacher">${ogrKisa}</span>
-          ${ogr2Kisa ? `<span class="two-teacher-badge">+${ogr2Kisa}</span>` : ''}`;
+        // cellShow moduna göre içerik
+        let line1 = '', line2 = '';
+        if(cellShow === 'sadece-kod') {
+          line1 = ders?.kod || '?';
+        } else if(cellShow === 'ad-ogr') {
+          line1 = ders?.ad?.substring(0,8) || '?';
+          line2 = ogrKisa;
+        } else { // kod-ogr (varsayılan)
+          line1 = ders?.kod || '?';
+          line2 = ogrKisa;
+        }
+        // Derslik varsa küçük icon
+        const derslikIcon = cell.derslikId ? `<span style="font-size:6px;color:var(--accent3)" title="${appData.derslikler.find(x=>x.id===cell.derslikId)?.ad||''}">🔬</span>` : '';
+        cellHtml = `<span class="cell-lesson">${line1}</span>
+          ${line2 ? `<span class="cell-teacher">${line2}</span>` : ''}
+          ${ogr2Kisa ? `<span class="two-teacher-badge">+${ogr2Kisa}</span>` : ''}
+          ${derslikIcon}`;
+      } else if(isBlocked) {
+        cellHtml = `<span class="cell-empty" style="font-size:10px;">🚫</span>`;
       } else {
         cellHtml = `<span class="cell-empty">—</span>`;
       }
 
-      html += `<td oncontextmenu="showCtxMenu(event,'${sinifId}','${key}')" onclick="clickDagitimCell('${sinifId}','${key}')">
-        <div class="${cls}" data-key="${key}" data-sinif="${sinifId}">
+      html += `<td oncontextmenu="showCtxMenu(event,'${sinifId}','${key}')" onclick="clickDagitimCell('${sinifId}','${key}')" style="height:${cellH};">
+        <div class="${cls}" data-key="${key}" data-sinif="${sinifId}" style="height:${cellH};">
           ${cellHtml}
           ${!isLocked && cell?.dersId ? `<button class="cell-clear-btn" onclick="clearCell(event,'${sinifId}','${key}')">✕</button>` : ''}
         </div>
@@ -3134,18 +3158,39 @@ function runDistributionAlgorithm() {
           // Öğretmen yasak gün kontrolü
           if(ogretmen.yasakGun?.includes(gun)) continue;
 
+          // Müsaitlik tablosu kontrolü
+          let gunMusaitDegil = false;
+          for(let b = 0; b < blokSize; b++) {
+            const testKey = `${gun}-${b+1}`;
+            if((ogretmen.musaitlik || {})[testKey] === false) { gunMusaitDegil = true; break; }
+          }
+          if(gunMusaitDegil) continue;
+
           // Max gün kısıtı
           if(ogretmen.maxGun) {
             const ogrGunler = new Set();
             Object.entries(dagitim).forEach(([k, v]) => {
               if(v.ogretmenId === ogretmen.id && v.dersId) ogrGunler.add(k.split('-')[0]);
             });
+            Object.keys(ogretmenOccupied).filter(k => k.startsWith(ogretmen.id+'-')).forEach(k => {
+              ogrGunler.add(k.split('-')[1]);
+            });
             if(ogrGunler.size >= ogretmen.maxGun && !ogrGunler.has(gun)) continue;
           }
 
+          // Günlük max ders saati kısıtı
+          if(ogretmen.maxGunlukSaat) {
+            let gunlukSaat = 0;
+            for(let s = 1; s <= maxSaat; s++) {
+              const k = `${gun}-${s}`;
+              if(dagitim[k]?.ogretmenId === ogretmen.id || ogretmenOccupied[`${ogretmen.id}-${k}`]) gunlukSaat++;
+            }
+            if(gunlukSaat + blokSize > ogretmen.maxGunlukSaat) continue;
+          }
+
           // Blok için ardışık saat ara
-          for(let startSaat = 1; startSaat <= maxSaat - blokSize + 1; startSaat++) {
-            // İlk saat kısıtı
+          for(let startSaat = (ogretmen.ilkSaatMin || 1); startSaat <= maxSaat - blokSize + 1; startSaat++) {
+            // İlk saat kısıtı (ders için)
             if(startSaat + blokSize - 1 > ilkSaatMax) break;
 
             let canPlace = true;
@@ -3160,6 +3205,8 @@ function runDistributionAlgorithm() {
               // Öğretmen o saatte başka sınıfta mı?
               if(ogretmenOccupied[`${ogretmen.id}-${key}`]) { canPlace = false; break; }
               if(ogretmen2 && ogretmenOccupied[`${ogretmen2.id}-${key}`]) { canPlace = false; break; }
+              // Müsaitlik kontrolü
+              if((ogretmen.musaitlik || {})[key] === false) { canPlace = false; break; }
             }
 
             if(canPlace) {
@@ -3284,9 +3331,10 @@ function renderProgramlar() {
   renderProgSinif();
   renderProgOgretmen();
   renderDagitimOzet();
+  // Derslik sekmesi aktifse güncelle
+  const derslikPanel = document.getElementById('prog-list-derslik');
+  if(derslikPanel && derslikPanel.style.display !== 'none') renderDerslikOzet();
 }
-
-function renderProgSinif() {
   const container = document.getElementById('prog-list-sinif');
   container.innerHTML = '';
   if(!appData.siniflar.length) { container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Henüz sınıf eklenmedi</div>'; return; }
@@ -5577,6 +5625,181 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 500);
 });
+
+// ===================================================================
+// SINIF MODAL CANLI SAAT SAYACI
+// ===================================================================
+function selectAllSinifDersler(sel) {
+  document.querySelectorAll('#sinif-ders-secim .chip').forEach(c => {
+    c.classList.toggle('selected', sel);
+  });
+  updateSinifSaatGostergesi();
+}
+
+function updateSinifSaatGostergesi() {
+  const gunSaat = parseInt(document.getElementById('s-gun-saat')?.value) || 8;
+  const duzey = document.getElementById('s-duzey')?.value?.trim() || '';
+  const sube = document.getElementById('s-sube')?.value?.trim() || 'A';
+  const tmpSinif = { duzey, sube, ad: duzey+sube };
+  const haftalik = gunSaat * appData.settings.gunler.length;
+  const secilenIds = [...document.querySelectorAll('#sinif-ders-secim .chip.selected')].map(c => c.dataset.id);
+  const seciliSaat = secilenIds.reduce((t, did) => {
+    const d = appData.dersler.find(x => x.id === did);
+    if(!d) return t;
+    const { saat } = getDersSaatiForSinif(d, tmpSinif);
+    return t + saat;
+  }, 0);
+  const progress = document.getElementById('sinif-saat-progress');
+  const label = document.getElementById('sinif-saat-gostergesi');
+  if(!progress || !label) return;
+  const pct = haftalik > 0 ? Math.min(100, Math.round(seciliSaat/haftalik*100)) : 0;
+  let color = 'var(--success)';
+  if(seciliSaat > haftalik) color = 'var(--danger)';
+  else if(pct < 100) color = 'var(--warn)';
+  progress.style.width = pct + '%';
+  progress.style.background = color;
+  label.style.color = seciliSaat > haftalik ? 'var(--danger)' : seciliSaat === haftalik ? 'var(--success)' : 'var(--warn)';
+  label.textContent = `${seciliSaat}/${haftalik} saat`;
+}
+
+// Saat sayacını chip tıklamalarına bağla
+document.addEventListener('click', e => {
+  const chip = e.target.closest('#sinif-ders-secim .chip');
+  if(chip) setTimeout(updateSinifSaatGostergesi, 10);
+  // s-gun-saat değişince de güncelle
+});
+
+// Günlük saat inputu değişince sayacı güncelle
+document.addEventListener('input', e => {
+  if(e.target.id === 's-gun-saat' || e.target.id === 's-duzey') {
+    updateSinifSaatGostergesi();
+  }
+});
+
+// openSinifModal'dan sonra sayacı başlat
+const _origOpenSinifModalCounter = openSinifModal;
+// NOT: Bu override pattern yerine openSinifModal içine direkt eklenmiştir
+// Sayacı modal açılınca başlat
+document.addEventListener('click', e => {
+  if(e.target && e.target.closest && e.target.closest('#sinif-modal')) {
+    setTimeout(updateSinifSaatGostergesi, 50);
+  }
+});
+
+// Öğretmen listesindeki kısıt özetini güncelle — maxGunlukSaat ve ilkSaatMin ekle
+function buildOgrKisitText(o) {
+  const kisitlar = [];
+  if(o.yasakGun?.length) kisitlar.push(`🚫${o.yasakGun.length}gün`);
+  if(o.maxBosluk !== null && o.maxBosluk !== undefined) kisitlar.push(`⏱${o.maxBosluk}`);
+  if(o.maxGun) kisitlar.push(`📅max${o.maxGun}gün`);
+  if(o.maxGunlukSaat) kisitlar.push(`⬆️günlük${o.maxGunlukSaat}`);
+  if(o.ilkSaatMin) kisitlar.push(`⏰${o.ilkSaatMin}.saat~`);
+  const blockedCount = Object.values(o.musaitlik || {}).filter(v => v === false).length;
+  if(blockedCount) kisitlar.push(`🔒${blockedCount}`);
+  return kisitlar.join(' ');
+}
+
+// ===================================================================
+// DERSLİK PROGRAMI — GENEL ÖZET
+// ===================================================================
+function renderDerslikOzet() {
+  if(!appData.derslikler.length) return;
+  const container = document.getElementById('prog-list-derslik');
+  if(!container) return;
+  container.innerHTML = '';
+
+  appData.derslikler.forEach(dl => {
+    let kullanilanSaat = 0;
+    const gunler = appData.settings.gunler;
+    const maxSaat = appData.settings.maxSaat;
+    gunler.forEach(g => {
+      for(let s = 1; s <= maxSaat; s++) {
+        appData.siniflar.forEach(sinif => {
+          const cell = (appData.dagitim[sinif.id] || {})[`${g}-${s}`];
+          if(cell?.derslikId === dl.id) kullanilanSaat++;
+        });
+      }
+    });
+    const totalSlots = gunler.length * maxSaat;
+    const pct = totalSlots > 0 ? Math.round(kullanilanSaat/totalSlots*100) : 0;
+
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.marginBottom = '8px';
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleDerslikProg(this,'${dl.id}')">
+        <div style="font-size:22px;">🔬</div>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:700;">${dl.ad}</div>
+          <div class="progress-bar" style="margin:4px 0;"><div class="progress-fill ok" style="width:${pct}%;"></div></div>
+          <div style="font-size:10px;color:var(--text2);">${kullanilanSaat} saat kullanımda · %${pct}</div>
+        </div>
+        <div style="display:flex;gap:4px;">
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportDerslikCarsaf('${dl.id}')">PDF</button>
+        </div>
+      </div>
+      <div id="derslik-prog-${dl.id}" style="display:none;margin-top:10px;overflow-x:auto;">
+        ${buildDerslikMiniTable(dl.id)}
+      </div>`;
+    container.appendChild(el);
+  });
+}
+
+function exportDerslikCarsaf(derslikId) {
+  const dl = appData.derslikler.find(x => x.id === derslikId);
+  if(!dl) return;
+  const gunler = appData.settings.gunler;
+  const maxSaat = appData.settings.maxSaat;
+  const settings = appData.settings;
+  const win = window.open('', '_blank');
+
+  let rows = '';
+  for(let s = 1; s <= maxSaat; s++) {
+    rows += `<tr><td style="background:#f0f2f8;font-weight:700;padding:5px 8px;">${s}. Saat</td>`;
+    gunler.forEach(g => {
+      const key = `${g}-${s}`;
+      let found = null;
+      appData.siniflar.forEach(sinif => {
+        const cell = (appData.dagitim[sinif.id] || {})[key];
+        if(cell?.derslikId === derslikId) found = { sinif, cell };
+      });
+      if(found) {
+        const d = appData.dersler.find(x => x.id === found.cell.dersId);
+        const o = appData.ogretmenler.find(x => x.id === found.cell.ogretmenId);
+        rows += `<td style="text-align:center;padding:4px;font-size:10px;border:1px solid #ccc;">
+          <strong>${found.sinif.ad}</strong><br>${d?.ad||''}<br><small>${o?.adSoyad||''}</small>
+        </td>`;
+      } else {
+        rows += `<td style="border:1px solid #eee;"></td>`;
+      }
+    });
+    rows += '</tr>';
+  }
+
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    @page { size: A4 landscape; margin: 10mm; }
+    body { font-family: Arial, sans-serif; font-size: 10px; }
+    h1 { text-align:center; font-size:13px; margin-bottom:2px; }
+    h2 { text-align:center; font-size:10px; font-weight:normal; margin-bottom:8px; }
+    table { border-collapse:collapse; width:100%; }
+    th, td { border:1px solid #bbb; padding:3px 5px; }
+    th { background:#e8eaf0; font-size:9px; text-align:center; }
+    .footer { margin-top:12px; text-align:right; font-size:9px; }
+  </style></head><body>
+  <h1>${settings.okulAdi||'Okul Adı'}</h1>
+  <h2>${settings.egitimYili||''} — ${dl.ad} Derslik Programı</h2>
+  <table>
+    <thead><tr><th>Saat</th>${gunler.map(g=>`<th>${g}</th>`).join('')}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="footer">${settings.mudurAdi||''}<br>${settings.mudurUnvan||'Okul Müdürü'}</div>
+  <div style="margin-top:16px;text-align:center;">
+    <button onclick="window.print()" style="padding:8px 20px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;">🖨️ Yazdır</button>
+  </div>
+  </body></html>`);
+  win.document.close();
+}
 
 </script>
 </body>
