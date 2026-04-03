@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>S-Dağıtım v1.7</title>
+<title>S-Dağıtım v1.8</title>
 <style>
 /* ===== TEMA DEĞİŞKENLERİ ===== */
 :root {
@@ -444,7 +444,7 @@ textarea { resize: vertical; min-height: 60px; }
 <!-- ÜSTTE BAR -->
 <div id="top-bar">
   <div class="app-logo">📅 S-Dağıtım</div>
-  <div class="app-ver">v1.7</div>
+  <div class="app-ver">v1.8</div>
   <div class="top-spacer"></div>
   <button class="top-btn" onclick="undoAction()" title="Geri Al">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
@@ -1224,7 +1224,7 @@ textarea { resize: vertical; min-height: 60px; }
 // ===================================================================
 // VERİ YAPISI
 // ===================================================================
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 let appData = {
   settings: {
     okulAdi: '', egitimYili: '2024-2025', mudurAdi: '', mudurUnvan: 'Okul Müdürü',
@@ -1238,8 +1238,8 @@ let appData = {
   dagitim: {}, // { 'sinifId': { 'Pazartesi-1': { dersId, ogretmenId, ogretmenId2, manuel, kilitli, blokunBozuldu } } }
 };
 
-let history = [];
-let historyIndex = -1;
+let undoStack = [];
+let undoIndex = -1;
 let currentEditId = null;
 let currentModule = null;
 let musaitlikTarget = null; // { type, id }
@@ -1273,25 +1273,25 @@ function loadFromStorage() {
 // ===================================================================
 function pushHistory() {
   const snap = JSON.stringify(appData);
-  history = history.slice(0, historyIndex + 1);
-  history.push(snap);
-  if(history.length > 50) history.shift();
-  historyIndex = history.length - 1;
+  undoStack = undoStack.slice(0, undoIndex + 1);
+  undoStack.push(snap);
+  if(undoStack.length > 50) undoStack.shift();
+  undoIndex = undoStack.length - 1;
 }
 
 function undoAction() {
-  if(historyIndex <= 0) { showToast('Geri alınacak işlem yok'); return; }
-  historyIndex--;
-  appData = JSON.parse(history[historyIndex]);
+  if(undoIndex <= 0) { showToast('Geri alınacak işlem yok'); return; }
+  undoIndex--;
+  appData = JSON.parse(undoStack[undoIndex]);
   saveToStorage();
   refreshAll();
   showToast('Geri alındı');
 }
 
 function redoAction() {
-  if(historyIndex >= history.length - 1) { showToast('İleri alınacak işlem yok'); return; }
-  historyIndex++;
-  appData = JSON.parse(history[historyIndex]);
+  if(undoIndex >= undoStack.length - 1) { showToast('İleri alınacak işlem yok'); return; }
+  undoIndex++;
+  appData = JSON.parse(undoStack[undoIndex]);
   saveToStorage();
   refreshAll();
   showToast('İleri alındı');
@@ -3428,6 +3428,7 @@ function renderProgramlar() {
   const derslikPanel = document.getElementById('prog-list-derslik');
   if(derslikPanel && derslikPanel.style.display !== 'none') renderDerslikOzet();
 }
+function renderProgSinif() {
   const container = document.getElementById('prog-list-sinif');
   container.innerHTML = '';
   if(!appData.siniflar.length) { container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Henüz sınıf eklenmedi</div>'; return; }
@@ -4212,24 +4213,31 @@ function parseCSV(text) {
 }
 
 function parseXLSXBasic(text) {
-  // SharedStrings tabanlı basit XLSX parse
-  const sharedMatch = text.match(/<sst[^>]*>([\s\S]*?)<\/sst>/);
-  const strings = [];
+  var LT = '\x3C', GT = '\x3E', SL = '\x2F';
+  var sharedRe = new RegExp(LT + 'sst[^' + GT + ']*' + GT + '([\\s\\S]*?)' + LT + SL + 'sst' + GT);
+  var sharedMatch = text.match(sharedRe);
+  var strings = [];
   if(sharedMatch) {
-    const tMatches = sharedMatch[1].match(/<t[^>]*>([^<]*)<\/t>/g) || [];
-    tMatches.forEach(m => strings.push(m.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')));
+    var tRe = new RegExp(LT + 't[^' + GT + ']*' + GT + '([^' + LT + ']*)' + LT + SL + 't' + GT, 'g');
+    var tMatches = sharedMatch[1].match(tRe) || [];
+    tMatches.forEach(function(m) {
+      strings.push(m.replace(new RegExp(LT + '[^' + GT + ']+' + GT, 'g'), '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
+    });
   }
-  // Sheet1 verileri
-  const sheetMatch = text.match(/<sheetData>([\s\S]*?)<\/sheetData>/);
+  var sheetRe = new RegExp(LT + 'sheetData' + GT + '([\\s\\S]*?)' + LT + SL + 'sheetData' + GT);
+  var sheetMatch = text.match(sheetRe);
   if(!sheetMatch) return [];
-  const rows = [];
-  const rowMatches = sheetMatch[1].match(/<row[^>]*>([\s\S]*?)<\/row>/g) || [];
-  rowMatches.forEach(rowXml => {
-    const cols = [];
-    const cells = rowXml.match(/<c[^>]*>([\s\S]*?)<\/c>/g) || [];
-    cells.forEach(cellXml => {
-      const tAttr = cellXml.match(/t="([^"]+)"/);
-      const vMatch = cellXml.match(/<v>([^<]*)<\/v>/);
+  var rows = [];
+  var rowRe = new RegExp(LT + 'row[^' + GT + ']*' + GT + '([\\s\\S]*?)' + LT + SL + 'row' + GT, 'g');
+  var rowMatches = sheetMatch[1].match(rowRe) || [];
+  rowMatches.forEach(function(rowXml) {
+    var cols = [];
+    var cellRe = new RegExp(LT + 'c[^' + GT + ']*' + GT + '([\\s\\S]*?)' + LT + SL + 'c' + GT, 'g');
+    var cells = rowXml.match(cellRe) || [];
+    cells.forEach(function(cellXml) {
+      var tAttr = cellXml.match(/t="([^"]+)"/);
+      var vRe = new RegExp(LT + 'v' + GT + '([^' + LT + ']*)' + LT + SL + 'v' + GT);
+      var vMatch = cellXml.match(vRe);
       if(vMatch) {
         if(tAttr && tAttr[1] === 's') {
           cols.push(strings[parseInt(vMatch[1])] || '');
@@ -4242,7 +4250,6 @@ function parseXLSXBasic(text) {
   });
   return rows;
 }
-
 function showColumnMapping() {
   const div = document.getElementById('column-mapping');
   div.style.display = '';
