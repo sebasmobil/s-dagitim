@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<title>S-Dağıtım v2.0</title>
+<title>S-Dağıtım v2.1</title>
 <style>
 /* ===== TEMA DEĞİŞKENLERİ ===== */
 :root {
@@ -445,7 +445,7 @@ textarea { resize: vertical; min-height: 60px; }
 <!-- ÜSTTE BAR -->
 <div id="top-bar">
   <div class="app-logo">📅 S-Dağıtım</div>
-  <div class="app-ver">v2.0</div>
+  <div class="app-ver">v2.1</div>
   <div id="save-indicator" style="font-size:10px;color:var(--success);display:none;align-items:center;gap:3px;">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><polyline points="20 6 9 17 4 12"/></svg>
     Kaydedildi
@@ -1253,7 +1253,7 @@ textarea { resize: vertical; min-height: 60px; }
 // ===================================================================
 // VERİ YAPISI
 // ===================================================================
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 let appData = {
   settings: {
     okulAdi: '', egitimYili: '2024-2025', mudurAdi: '', mudurUnvan: 'Okul Müdürü',
@@ -1877,12 +1877,12 @@ function getSinifSaatListesi() {
 function getDersSaatiForSinif(ders, sinif) {
   // Önce sınıfa özel düzey konfigürasyonu ara
   if(ders.sinifSaatler && ders.sinifSaatler.length > 0) {
-    const spesifik = ders.sinifSaatler.find(s => s.duzey === sinif.duzey);
-    if(spesifik) return { saat: spesifik.saat, blok: spesifik.blok };
+    const spesifik = ders.sinifSaatler.find(s => s.duzey === String(sinif.duzey));
+    if(spesifik) return { saat: parseInt(spesifik.saat) || 0, blok: spesifik.blok || '' };
     const genel = ders.sinifSaatler.find(s => !s.duzey || s.duzey === '');
-    if(genel) return { saat: genel.saat, blok: genel.blok };
+    if(genel) return { saat: parseInt(genel.saat) || 0, blok: genel.blok || '' };
   }
-  return { saat: ders.haftalikSaat || 2, blok: ders.blok || '' };
+  return { saat: parseInt(ders.haftalikSaat) || 0, blok: ders.blok || '' };
 }
 
 
@@ -1952,7 +1952,7 @@ function saveSinif() {
       const d = appData.dersler.find(x => x.id === did);
       if(!d) return t;
       const { saat } = getDersSaatiForSinif(d, tmpSinif);
-      return t + saat;
+      return t + (parseInt(saat) || 0);
     }, 0);
 
     if(secilenDersler.length) {
@@ -2188,39 +2188,100 @@ function getDersAd(id) { return appData.dersler.find(x => x.id === id)?.ad || id
 function getSinifAd(id) { return appData.siniflar.find(x => x.id === id)?.ad || id; }
 
 function addOgrDers() {
+  // Hangi öğretmeni düzenliyoruz?
+  const duzenleOgrId = currentEditId; // openOgretmenModal'dan gelen
+
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:flex-end;';
   modal.dataset.dmodal = '1';
+
+  // Önce ders listesini hazırla (tüm dersler)
+  const dersOptions = appData.dersler.map(d => `<option value="${d.id}">${d.ad} (${d.kod})</option>`).join('');
+
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:85vh;overflow-y:auto;">
     <div style="font-size:15px;font-weight:700;margin-bottom:12px;">📚 Ders Ata</div>
     <label style="font-size:12px;font-weight:600;color:var(--text2);">Ders Seç</label>
-    <select id="tmp-ders-sel" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px;margin-bottom:10px;font-size:13px;">
+    <select id="tmp-ders-sel" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px;margin-bottom:10px;font-size:13px;" onchange="onDersSecildi(this, '${duzenleOgrId||''}')">
       <option value="">— Ders Seç —</option>
-      ${appData.dersler.map(d => `<option value="${d.id}">${d.ad} (${d.kod})</option>`).join('')}
+      ${dersOptions}
     </select>
+    <div id="tmp-ders-uyari" style="display:none;margin-bottom:8px;font-size:11px;color:var(--warn);background:rgba(247,162,79,0.1);border:1px solid rgba(247,162,79,0.3);border-radius:6px;padding:6px 8px;"></div>
     <label style="font-size:12px;font-weight:600;color:var(--text2);">Sınıflar</label>
     <div style="display:flex;gap:6px;margin-bottom:6px;">
       <button class="btn btn-secondary btn-sm" onclick="selectAllSinifChips(true)">Tümünü Seç</button>
       <button class="btn btn-secondary btn-sm" onclick="selectAllSinifChips(false)">Temizle</button>
     </div>
     <div id="tmp-sinif-chips" class="chip-group" style="margin-bottom:12px;">
-      ${appData.siniflar.map(s => `<div class="chip" data-id="${s.id}" onclick="this.classList.toggle('selected')">${s.ad}</div>`).join('')}
+      ${appData.siniflar.map(s => `<div class="chip" data-id="${s.id}" onclick="toggleSinifChipIfEnabled(this)">${s.ad}</div>`).join('')}
     </div>
+    <div id="tmp-sinif-aciklama" style="font-size:10px;color:var(--text3);margin-bottom:8px;display:none;">🔴 Kırmızı sınıflar bu ders için başka öğretmene atanmış</div>
     <div style="display:flex;gap:8px;">
       <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="confirmOgrDers(this)">Ekle / Güncelle</button>
     </div>
   </div>`;
   document.body.appendChild(modal);
-  // Mevcut seçimleri işaretle
-  const curDers = document.getElementById('tmp-ders-sel');
-  curDers.addEventListener('change', () => {
-    const did = curDers.value;
-    const existing = window._tmpOgrDersList?.find(x => x.dersId === did);
-    document.querySelectorAll('#tmp-sinif-chips .chip').forEach(chip => {
-      chip.classList.toggle('selected', existing?.siniflar?.includes(chip.dataset.id) || false);
+}
+
+// Ders seçilince sınıfları filtrele — başka öğretmene atanmış olanları pasif yap
+function onDersSecildi(sel, duzenleOgrId) {
+  const dersId = sel.value;
+  const existing = window._tmpOgrDersList?.find(x => x.dersId === dersId);
+  const aciklama = document.getElementById('tmp-sinif-aciklama');
+  const uyari = document.getElementById('tmp-ders-uyari');
+
+  // Bu dersi başka hangi öğretmenler hangi sınıflara almış?
+  const cakisanSiniflar = {}; // sinifId → ogrAdSoyad
+  if(dersId) {
+    appData.ogretmenler.forEach(ogr => {
+      if(ogr.id === duzenleOgrId) return; // kendisi değil
+      const atama = ogr.atananDersler?.find(ad => ad.dersId === dersId);
+      if(atama) {
+        atama.siniflar?.forEach(sid => {
+          cakisanSiniflar[sid] = ogr.adSoyad;
+        });
+      }
     });
+    // Şu an düzenlenen öğretmenin tmp listesinde de bu ders varsa mevcut sınıflarını hariç tut değil, göster
+  }
+
+  const hasCakisma = Object.keys(cakisanSiniflar).length > 0;
+  if(hasCakisma && dersId) {
+    aciklama.style.display = '';
+    const ogrAdlar = [...new Set(Object.values(cakisanSiniflar))].join(', ');
+    uyari.style.display = '';
+    uyari.textContent = `⚠️ Bu ders şu öğretmende zaten var: ${ogrAdlar}. O sınıflar seçilemez.`;
+  } else {
+    aciklama.style.display = 'none';
+    uyari.style.display = 'none';
+  }
+
+  // Chip'leri güncelle
+  document.querySelectorAll('#tmp-sinif-chips .chip').forEach(chip => {
+    const sid = chip.dataset.id;
+    const cakisan = cakisanSiniflar[sid];
+    if(cakisan) {
+      // Başka öğretmende var — pasif göster
+      chip.dataset.disabled = '1';
+      chip.classList.remove('selected');
+      chip.style.cssText = 'opacity:0.4;cursor:not-allowed;background:rgba(247,95,95,0.15);border-color:var(--danger);color:var(--danger);';
+      chip.title = `Bu sınıf "${cakisan}" öğretmenine atanmış`;
+    } else {
+      chip.dataset.disabled = '';
+      chip.style.cssText = '';
+      chip.title = '';
+      // Mevcut atamaları işaretle
+      chip.classList.toggle('selected', existing?.siniflar?.includes(sid) || false);
+    }
   });
+}
+
+function toggleSinifChipIfEnabled(chip) {
+  if(chip.dataset.disabled === '1') {
+    showToast('Bu sınıf başka öğretmene atanmış!', 'error');
+    return;
+  }
+  chip.classList.toggle('selected');
 }
 
 function selectAllSinifChips(sel) {
@@ -6394,21 +6455,21 @@ function selectAllSinifDersler(sel) {
 
 function updateSinifSaatGostergesi() {
   const gunSaat = parseInt(document.getElementById('s-gun-saat')?.value) || 8;
-  const duzey = document.getElementById('s-duzey')?.value?.trim() || '';
-  const sube = document.getElementById('s-sube')?.value?.trim() || 'A';
-  const tmpSinif = { duzey, sube, ad: duzey+sube };
+  const duzey = (document.getElementById('s-duzey')?.value?.trim() || '');
+  const sube = (document.getElementById('s-sube')?.value?.trim() || 'A');
+  const tmpSinif = { duzey: String(duzey), sube, ad: duzey + sube };
   const haftalik = gunSaat * appData.settings.gunler.length;
   const secilenIds = [...document.querySelectorAll('#sinif-ders-secim .chip.selected')].map(c => c.dataset.id);
   const seciliSaat = secilenIds.reduce((t, did) => {
     const d = appData.dersler.find(x => x.id === did);
     if(!d) return t;
     const { saat } = getDersSaatiForSinif(d, tmpSinif);
-    return t + saat;
+    return t + (parseInt(saat) || 0); // parseInt güvencesi
   }, 0);
   const progress = document.getElementById('sinif-saat-progress');
   const label = document.getElementById('sinif-saat-gostergesi');
   if(!progress || !label) return;
-  const pct = haftalik > 0 ? Math.min(100, Math.round(seciliSaat/haftalik*100)) : 0;
+  const pct = haftalik > 0 ? Math.min(100, Math.round(seciliSaat / haftalik * 100)) : 0;
   let color = 'var(--success)';
   if(seciliSaat > haftalik) color = 'var(--danger)';
   else if(pct < 100) color = 'var(--warn)';
