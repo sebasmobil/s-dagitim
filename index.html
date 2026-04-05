@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>S-Dağıtım v1.8</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<title>S-Dağıtım v1.9</title>
 <style>
 /* ===== TEMA DEĞİŞKENLERİ ===== */
 :root {
@@ -444,7 +445,11 @@ textarea { resize: vertical; min-height: 60px; }
 <!-- ÜSTTE BAR -->
 <div id="top-bar">
   <div class="app-logo">📅 S-Dağıtım</div>
-  <div class="app-ver">v1.8</div>
+  <div class="app-ver">v1.9</div>
+  <div id="save-indicator" style="font-size:10px;color:var(--success);display:none;align-items:center;gap:3px;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><polyline points="20 6 9 17 4 12"/></svg>
+    Kaydedildi
+  </div>
   <div class="top-spacer"></div>
   <button class="top-btn" onclick="undoAction()" title="Geri Al">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
@@ -535,6 +540,12 @@ textarea { resize: vertical; min-height: 60px; }
         <button class="btn btn-warn" onclick="startAutoDistribute()">
           ⚡ Hızlı Dağıt
         </button>
+        <button class="btn btn-secondary" onclick="showGenelBakis()">
+          🔭 Genel Bakış
+        </button>
+        <button class="btn btn-secondary" onclick="generateCakismaRaporu()">
+          🔍 Çakışma Kontrol
+        </button>
       </div>
     </div>
 
@@ -558,7 +569,11 @@ textarea { resize: vertical; min-height: 60px; }
           📂 Geri Yükle
         </button>
       </div>
+      <button class="btn btn-secondary btn-full" style="margin-top:8px;" onclick="exportOzetRapor()">
+        📊 Kapsamlı Excel Raporu
+      </button>
       <div style="margin-top:8px;font-size:11px;color:var(--text2)">Son yedek: <span id="last-backup-time">—</span></div>
+      <div style="margin-top:4px;font-size:10px;color:var(--text3)" id="storage-size-info"></div>
     </div>
   </div>
 
@@ -727,6 +742,7 @@ textarea { resize: vertical; min-height: 60px; }
         <button class="btn btn-secondary btn-sm" onclick="exportOgrDagitim('pdf')">📄 PDF</button>
         <button class="btn btn-secondary btn-sm" onclick="exportCarsaf('ogretmen')">🗂 Çarşaf</button>
         <button class="btn btn-secondary btn-sm" onclick="exportElProgram('ogretmen')">✋ El Prog.</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportOgrDagitimXLSX()">📊 Excel</button>
       </div>
     </div>
   </div>
@@ -739,11 +755,17 @@ textarea { resize: vertical; min-height: 60px; }
       <button class="tab-btn" onclick="switchProgTab('ogretmen', this)">👨‍🏫 Öğretmen</button>
       <button class="tab-btn" onclick="switchProgTab('derslik', this)">🔬 Derslik</button>
     </div>
+    <!-- Arama -->
+    <div class="search-bar" style="margin-bottom:8px;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="text" placeholder="Ara..." oninput="filterProgramlar(this.value)" id="prog-search">
+    </div>
     <!-- Toplu dışa aktarım -->
     <div class="form-row" style="margin-bottom:10px;flex-wrap:wrap;gap:6px;">
       <button class="btn btn-secondary btn-sm" id="prog-carsaf-btn" onclick="exportAllCarsaf('sinif')">🗂 Çarşaf</button>
       <button class="btn btn-secondary btn-sm" id="prog-xlsx-btn" onclick="exportAllProgXLSX()">📊 Excel</button>
       <button class="btn btn-secondary btn-sm" id="prog-pdf-btn" onclick="exportAllProgPDF()">🖨️ PDF</button>
+      <button class="btn btn-secondary btn-sm" id="prog-ogr-xlsx-btn" style="display:none;" onclick="exportAllOgrXLSX()">📊 Öğr. Excel</button>
     </div>
     <div id="prog-list-sinif">
       <div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Dağıtım yapıldıktan sonra görünür</div>
@@ -1127,6 +1149,9 @@ textarea { resize: vertical; min-height: 60px; }
         <div style="font-size:11px;color:var(--text3);margin-top:4px;">veya buraya sürükle bırak</div>
       </div>
       <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFileImport(this)">
+      <div style="margin-top:8px;font-size:10px;color:var(--text3);text-align:center;">
+        CSV (UTF-8) · XLSX (Excel) · XLS desteklenir
+      </div>
       
       <!-- Sütun Eşleştirme -->
       <div id="column-mapping" style="display:none;">
@@ -1224,7 +1249,7 @@ textarea { resize: vertical; min-height: 60px; }
 // ===================================================================
 // VERİ YAPISI
 // ===================================================================
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 let appData = {
   settings: {
     okulAdi: '', egitimYili: '2024-2025', mudurAdi: '', mudurUnvan: 'Okul Müdürü',
@@ -1251,11 +1276,25 @@ let importColumns = [];
 // ===================================================================
 // LOCALSTORAGE
 // ===================================================================
+let _saveIndicatorTimer = null;
 function saveToStorage() {
   try {
     localStorage.setItem('sdagitim_v1', JSON.stringify(appData));
     localStorage.setItem('sdagitim_ver', APP_VERSION);
-  } catch(e) { showError(e); }
+    // Kayıt göstergesi
+    const ind = document.getElementById('save-indicator');
+    if(ind) {
+      ind.style.display = 'flex';
+      clearTimeout(_saveIndicatorTimer);
+      _saveIndicatorTimer = setTimeout(() => { ind.style.display = 'none'; }, 1500);
+    }
+  } catch(e) {
+    if(e.name === 'QuotaExceededError') {
+      showToast('⚠️ Depolama dolu! Lütfen yedek alıp bazı verileri temizleyin.', 'error');
+    } else {
+      showError(e);
+    }
+  }
 }
 
 function loadFromStorage() {
@@ -1263,7 +1302,13 @@ function loadFromStorage() {
     const raw = localStorage.getItem('sdagitim_v1');
     if(raw) {
       const parsed = JSON.parse(raw);
-      appData = { ...appData, ...parsed };
+      // Derin birleştirme — settings için defaults korunur
+      if(parsed.settings) appData.settings = { ...appData.settings, ...parsed.settings };
+      if(Array.isArray(parsed.dersler)) appData.dersler = parsed.dersler;
+      if(Array.isArray(parsed.siniflar)) appData.siniflar = parsed.siniflar;
+      if(Array.isArray(parsed.derslikler)) appData.derslikler = parsed.derslikler;
+      if(Array.isArray(parsed.ogretmenler)) appData.ogretmenler = parsed.ogretmenler;
+      if(parsed.dagitim && typeof parsed.dagitim === 'object') appData.dagitim = parsed.dagitim;
     }
   } catch(e) { showError(e); }
 }
@@ -1343,14 +1388,31 @@ function switchProgTab(tab, btn) {
   const carsafBtn = document.getElementById('prog-carsaf-btn');
   const xlsxBtn = document.getElementById('prog-xlsx-btn');
   const pdfBtn = document.getElementById('prog-pdf-btn');
+  const ogrXlsxBtn = document.getElementById('prog-ogr-xlsx-btn');
   if(tab === 'sinif') {
-    if(carsafBtn) carsafBtn.onclick = () => exportAllCarsaf('sinif');
-    if(xlsxBtn) xlsxBtn.onclick = exportAllProgXLSX;
-    if(pdfBtn) pdfBtn.onclick = () => exportAllCarsaf('sinif');
+    if(carsafBtn) { carsafBtn.style.display = ''; carsafBtn.onclick = () => exportAllCarsaf('sinif'); }
+    if(xlsxBtn) { xlsxBtn.style.display = ''; xlsxBtn.onclick = exportAllProgXLSX; }
+    if(pdfBtn) { pdfBtn.style.display = ''; pdfBtn.onclick = () => exportAllCarsaf('sinif'); }
+    if(ogrXlsxBtn) ogrXlsxBtn.style.display = 'none';
+    const si = document.getElementById('prog-search'); if(si) si.placeholder = 'Sınıf ara...';
   } else if(tab === 'ogretmen') {
-    if(carsafBtn) carsafBtn.onclick = () => exportAllCarsaf('ogretmen');
-    if(pdfBtn) pdfBtn.onclick = () => exportAllCarsaf('ogretmen');
+    if(carsafBtn) { carsafBtn.style.display = ''; carsafBtn.onclick = () => exportAllCarsaf('ogretmen'); }
+    if(xlsxBtn) xlsxBtn.style.display = 'none';
+    if(pdfBtn) { pdfBtn.style.display = ''; pdfBtn.onclick = () => exportAllCarsaf('ogretmen'); }
+    if(ogrXlsxBtn) ogrXlsxBtn.style.display = '';
+    const si = document.getElementById('prog-search'); if(si) si.placeholder = 'Öğretmen ara...';
+  } else if(tab === 'derslik') {
+    if(carsafBtn) carsafBtn.style.display = 'none';
+    if(xlsxBtn) xlsxBtn.style.display = 'none';
+    if(pdfBtn) pdfBtn.style.display = 'none';
+    if(ogrXlsxBtn) ogrXlsxBtn.style.display = 'none';
+    const si = document.getElementById('prog-search'); if(si) si.placeholder = 'Derslik ara...';
+    renderProgDerslik();
   }
+  // Arama kutusunu temizle ve yeniden filtrele
+  const searchEl = document.getElementById('prog-search');
+  if(searchEl) { searchEl.value = ''; }
+  filterProgramlar('');
   if(tab === 'derslik') renderProgDerslik();
 }
 
@@ -1398,37 +1460,6 @@ function buildDerslikMiniTable(derslikId) {
   return html + '</tbody></table>';
 }
 
-function exportAllProgXLSX() {
-  // Tüm sınıfların programını tek Excel'e
-  const gunler = appData.settings.gunler;
-  let table = '<table>';
-  table += '<tr><th>Sınıf</th><th>Saat</th>' + gunler.map(g=>`<th>${g}</th>`).join('') + '</tr>';
-  appData.siniflar.forEach(sinif => {
-    const dag = appData.dagitim[sinif.id] || {};
-    const maxSaat = sinif.gunSaat || appData.settings.maxSaat;
-    for(let s = 1; s <= maxSaat; s++) {
-      table += `<tr><td>${s===1?sinif.ad:''}</td><td>${s}. Saat</td>`;
-      gunler.forEach(g => {
-        const cell = dag[`${g}-${s}`];
-        if(cell?.dersId) {
-          const d = appData.dersler.find(x=>x.id===cell.dersId);
-          const o = appData.ogretmenler.find(x=>x.id===cell.ogretmenId);
-          table += `<td>${d?.ad||''} - ${o?.adSoyad||''}</td>`;
-        } else table += '<td></td>';
-      });
-      table += '</tr>';
-    }
-    table += `<tr><td colspan="${gunler.length+2}"></td></tr>`;
-  });
-  table += '</table>';
-  const blob = new Blob(['\uFEFF<html><head><meta charset="UTF-8"></head><body>'+table+'</body></html>'], { type: 'application/vnd.ms-excel' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url;
-  a.download = `tum_programlar_${Date.now()}.xls`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  showToast('Excel indirildi ✅', 'success');
-}
 
 function exportAllProgPDF() {
   exportAllCarsaf('sinif');
@@ -3427,6 +3458,42 @@ function renderProgramlar() {
   // Derslik sekmesi aktifse güncelle
   const derslikPanel = document.getElementById('prog-list-derslik');
   if(derslikPanel && derslikPanel.style.display !== 'none') renderDerslikOzet();
+  // Programlar özet istatistik
+  renderProgramlarOzet();
+}
+
+function renderProgramlarOzet() {
+  // existing prog-search input area kullan — override değil, prepend
+  const sinifList = document.getElementById('prog-list-sinif');
+  if(!sinifList) return;
+  // Mevcut özet varsa güncelle
+  let ozet = document.getElementById('prog-ozet-stat');
+  if(!ozet) {
+    ozet = document.createElement('div');
+    ozet.id = 'prog-ozet-stat';
+    ozet.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;';
+    sinifList.parentNode.insertBefore(ozet, sinifList);
+  }
+  const tumDag = Object.values(appData.dagitim);
+  const tumHucreler = tumDag.flatMap(d => Object.values(d));
+  const dolu = tumHucreler.filter(v => v.dersId).length;
+  const kilitli = tumHucreler.filter(v => v.kilitli).length;
+  const manuel = tumHucreler.filter(v => v.manuel).length;
+  const toplamBeklenen = appData.siniflar.reduce((t, s) => t + (s.gunSaat || 8) * appData.settings.gunler.length, 0);
+  const pct = toplamBeklenen > 0 ? Math.round(dolu / toplamBeklenen * 100) : 0;
+  ozet.innerHTML = `
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center;">
+      <div style="font-size:18px;font-weight:800;color:var(--accent);">${pct}%</div>
+      <div style="font-size:10px;color:var(--text2);">Dağıtım</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center;">
+      <div style="font-size:18px;font-weight:800;color:var(--warn);">${manuel}</div>
+      <div style="font-size:10px;color:var(--text2);">Manuel</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center;">
+      <div style="font-size:18px;font-weight:800;color:var(--danger);">${kilitli}</div>
+      <div style="font-size:10px;color:var(--text2);">Kilitli</div>
+    </div>`;
 }
 function renderProgSinif() {
   const container = document.getElementById('prog-list-sinif');
@@ -3440,6 +3507,7 @@ function renderProgSinif() {
     const el = document.createElement('div');
     el.className = 'card';
     el.style.marginBottom = '8px';
+    el.dataset.sinifAd = s.ad.toLowerCase();
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleSinifProg(this,'${s.id}')">
         <div style="background:var(--accent2);color:#fff;border-radius:6px;padding:4px 10px;font-size:14px;font-weight:800;">${s.ad}</div>
@@ -3448,10 +3516,10 @@ function renderProgSinif() {
           <div class="progress-bar" style="margin:4px 0;"><div class="progress-fill ${cls}" style="width:${pct}%"></div></div>
           <div style="font-size:10px;color:var(--text2);">${placed}/${total} saat · %${pct}</div>
         </div>
-        <div style="display:flex;gap:4px;">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
           <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportSinifProgram('${s.id}','pdf')">PDF</button>
           <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportCarsafForSinif('${s.id}')">Çarşaf</button>
-          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportElProgram('${s.id}','sinif')">El Pr.</button>
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportDagitimXLS('${s.id}')">📊</button>
         </div>
       </div>
       <div id="sinif-prog-detail-${s.id}" style="display:none;margin-top:10px;overflow-x:auto;"></div>`;
@@ -3483,6 +3551,8 @@ function renderProgOgretmen() {
     const el = document.createElement('div');
     el.className = 'card';
     el.style.marginBottom = '8px';
+    el.dataset.ogradSoyad = (o.adSoyad || '').toLowerCase();
+    el.dataset.ogrBrans = (o.brans || '').toLowerCase();
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleOgrProg(this,'${o.id}')">
         <div style="width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;">${o.ad[0]}${o.soyad[0]}</div>
@@ -3490,15 +3560,121 @@ function renderProgOgretmen() {
           <div style="font-size:13px;font-weight:600;">${o.adSoyad}</div>
           <div style="font-size:11px;color:var(--text2);">${o.brans || ''} · ${toplamSaat} saat/hafta</div>
         </div>
-        <div style="display:flex;gap:4px;">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
           <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportOgrPdf('${o.id}')">PDF</button>
           <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportOgrCarsaf('${o.id}')">Çarşaf</button>
-          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportElProgram('${o.id}','ogretmen')">El Pr.</button>
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();exportSingleOgrXLSX('${o.id}')">📊</button>
         </div>
       </div>
       <div id="ogr-prog-detail-${o.id}" style="display:none;margin-top:10px;overflow-x:auto;"></div>`;
     container.appendChild(el);
   });
+}
+
+// Programlar sayfasında arama filtresi
+function filterProgramlar(q) {
+  const ql = q.toLowerCase();
+  // Sınıf listesi
+  document.querySelectorAll('#prog-list-sinif .card').forEach(el => {
+    const ad = (el.dataset.sinifAd || el.querySelector('[style*="font-weight:800"]')?.textContent || '').toLowerCase();
+    el.style.display = (!ql || ad.includes(ql)) ? '' : 'none';
+  });
+  // Öğretmen listesi
+  document.querySelectorAll('#prog-list-ogretmen .card').forEach(el => {
+    const visible = !ql || el.dataset.ogradSoyad?.includes(ql) || el.dataset.ogrBrans?.includes(ql);
+    el.style.display = visible ? '' : 'none';
+  });
+  // Derslik listesi
+  document.querySelectorAll('#prog-list-derslik .card').forEach(el => {
+    const ad = (el.querySelector('[style*="font-weight:700"]')?.textContent || '').toLowerCase();
+    el.style.display = (!ql || ad.includes(ql)) ? '' : 'none';
+  });
+}
+
+// Tek öğretmen için XLSX dışa aktarım
+function exportSingleOgrXLSX(ogrId) {
+  if(typeof XLSX === 'undefined') { showToast('XLSX kütüphanesi yüklenemedi', 'error'); return; }
+  const ogr = appData.ogretmenler.find(x => x.id === ogrId);
+  if(!ogr) return;
+  const gunler = appData.settings.gunler;
+  const maxSaat = appData.settings.maxSaat;
+  const wsData = [
+    [`${ogr.adSoyad} — ${ogr.brans || ''} — ${appData.settings.egitimYili || ''}`],
+    ['Saat', ...gunler]
+  ];
+  for(let s = 1; s <= maxSaat; s++) {
+    const row = [`${s}. Saat`];
+    gunler.forEach(g => {
+      const key = `${g}-${s}`;
+      let found = null;
+      appData.siniflar.forEach(sinif => {
+        const cell = (appData.dagitim[sinif.id] || {})[key];
+        if(cell && (cell.ogretmenId === ogrId || cell.ogretmenId2 === ogrId)) found = { sinif, cell };
+      });
+      if(found) {
+        const d = appData.dersler.find(x => x.id === found.cell.dersId);
+        row.push(`${found.sinif.ad}\n${d?.ad || ''}`);
+      } else {
+        const isBlocked = (ogr.musaitlik || {})[key] === false || ogr.yasakGun?.includes(g);
+        row.push(isBlocked ? '🚫' : '');
+      }
+    });
+    wsData.push(row);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [{wch:12}, ...gunler.map(()=>({wch:16}))];
+  ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:gunler.length} }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, ogr.adSoyad.substring(0,31));
+  XLSX.writeFile(wb, `${ogr.adSoyad.replace(/\s+/g,'_')}_program.xlsx`);
+  showToast('📊 Excel indirildi ✅', 'success');
+}
+
+// Mevcut dagitim panelindeki öğretmen için XLSX
+function exportOgrDagitimXLSX() {
+  const ogrId = document.getElementById('dagitim-ogr-select')?.value;
+  if(!ogrId) { showToast('Öğretmen seçin', 'error'); return; }
+  exportSingleOgrXLSX(ogrId);
+}
+
+// Tüm öğretmenlerin programını tek XLSX'e aktar (her biri ayrı sayfa)
+function exportAllOgrXLSX() {
+  if(typeof XLSX === 'undefined') { showToast('XLSX kütüphanesi yüklenemedi', 'error'); return; }
+  if(!appData.ogretmenler.length) { showToast('Öğretmen yok', 'error'); return; }
+  const gunler = appData.settings.gunler;
+  const maxSaat = appData.settings.maxSaat;
+  const wb = XLSX.utils.book_new();
+
+  appData.ogretmenler.forEach(ogr => {
+    const wsData = [
+      [`${ogr.adSoyad} — ${ogr.brans || ''}`],
+      ['Saat', ...gunler]
+    ];
+    for(let s = 1; s <= maxSaat; s++) {
+      const row = [`${s}. Saat`];
+      gunler.forEach(g => {
+        const key = `${g}-${s}`;
+        let found = null;
+        appData.siniflar.forEach(sinif => {
+          const cell = (appData.dagitim[sinif.id] || {})[key];
+          if(cell && (cell.ogretmenId === ogr.id || cell.ogretmenId2 === ogr.id)) found = { sinif, cell };
+        });
+        if(found) {
+          const d = appData.dersler.find(x => x.id === found.cell.dersId);
+          row.push(`${found.sinif.ad} - ${d?.ad||''}`);
+        } else {
+          row.push('');
+        }
+      });
+      wsData.push(row);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{wch:12}, ...gunler.map(()=>({wch:18}))];
+    XLSX.utils.book_append_sheet(wb, ws, ogr.adSoyad.substring(0,31));
+  });
+
+  XLSX.writeFile(wb, `tum_ogretmen_programlari_${new Date().toLocaleDateString('tr-TR').replace(/\./g,'_')}.xlsx`);
+  showToast(`✅ ${appData.ogretmenler.length} öğretmen programı indirildi`, 'success');
 }
 
 function toggleOgrProg(header, ogrId) {
@@ -4154,29 +4330,29 @@ function handleFileImport(input) {
 
       if(isCSV) {
         const text = e.target.result;
-        // UTF-8 BOM temizle
         const clean = text.replace(/^\uFEFF/, '');
         rows = parseCSV(clean);
       } else {
-        // XLSX: basit binary parse — SheetJS olmadan temel destek
-        // ArrayBuffer olarak okuduk, binary string'e çevir
-        const data = new Uint8Array(e.target.result);
-        // XLSX gerçek parse için SheetJS gerekiyor — basit fallback: kullanıcıya bildir
-        showToast('XLSX: Dosya okunuyor, lütfen bekleyin...', 'info');
-        // İçerik olarak text denemesi (bazı basit xlsx açılabilir)
+        // SheetJS ile XLSX okuma
+        if(typeof XLSX === 'undefined') {
+          showToast('XLSX kütüphanesi yüklenemedi. Lütfen sayfayı yenileyin.', 'error');
+          return;
+        }
         try {
-          const textDecoder = new TextDecoder('utf-8', { fatal: false });
-          const text = textDecoder.decode(data);
-          // XML içeriğinden veri çıkarmayı dene
-          const xlsxRows = parseXLSXBasic(text);
-          if(xlsxRows.length > 1) {
-            rows = xlsxRows;
-          } else {
-            showToast('XLSX dosyası okunamadı. Lütfen CSV olarak kaydedin.', 'error');
+          const data = new Uint8Array(e.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          const wsName = wb.SheetNames[0];
+          const ws = wb.Sheets[wsName];
+          const jsonData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+          rows = jsonData.filter(r => r.some(c => c !== null && c !== undefined && c.toString().trim() !== ''));
+          if(rows.length < 2) {
+            showToast('XLSX dosyası boş veya hatalı', 'error');
             return;
           }
+          // Tüm değerleri string'e çevir
+          rows = rows.map(row => row.map(c => c === null || c === undefined ? '' : c.toString().trim()));
         } catch(xe) {
-          showToast('XLSX desteği için dosyayı CSV olarak kaydedin.', 'error');
+          showToast('XLSX dosyası okunamadı: ' + xe.message, 'error');
           return;
         }
       }
@@ -4488,6 +4664,15 @@ function updateStats() {
   if(okulEl) okulEl.textContent = appData.settings.okulAdi || 'Okul adı girilmedi';
   const yilEl = document.getElementById('egitim-yili-display');
   if(yilEl) yilEl.textContent = appData.settings.egitimYili || '—';
+  // Depolama boyutu
+  try {
+    const sizeEl = document.getElementById('storage-size-info');
+    if(sizeEl) {
+      const raw = localStorage.getItem('sdagitim_v1') || '';
+      const kb = (raw.length * 2 / 1024).toFixed(1);
+      sizeEl.textContent = `💾 localStorage: ${kb} KB kullanımda`;
+    }
+  } catch(e) {}
 }
 
 function renderSetupChecklist() {
@@ -4737,38 +4922,134 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ===================================================================
-// EXCEL DİŞA AKTARIM — tam çalışan (stub kaldır)
+// DIŞA AKTARIM — exportData (CSV + XLSX)
 // ===================================================================
-// exportXLSX fonksiyonu zaten var ama dagitim için de ekle
+function exportData(module) {
+  // Önce SheetJS varsa XLSX, yoksa CSV
+  if(typeof XLSX !== 'undefined') {
+    exportXLSX(module);
+  } else {
+    exportCSV(module);
+  }
+}
+
+function exportCSV(module) {
+  let headers = [], data = [];
+  if(module === 'dersler') {
+    headers = ['Ders Adı','Ders Kodu','Haftalık Saat','Blok','İlk Saat Kısıtı'];
+    data = appData.dersler.map(d => [d.ad, d.kod, d.haftalikSaat||'', d.blok||'', d.ilkSaat||'']);
+  } else if(module === 'siniflar') {
+    headers = ['Sınıf','Düzey','Şube','Günlük Saat','Grup'];
+    data = appData.siniflar.map(s => [s.ad, s.duzey, s.sube, s.gunSaat, s.grup]);
+  } else if(module === 'ogretmenler') {
+    headers = ['Ad','Soyad','Ad Soyad','Branş','Ünvan'];
+    data = appData.ogretmenler.map(o => [o.ad, o.soyad, o.adSoyad, o.brans||'', o.unvan||'']);
+  }
+  const csvRows = [headers, ...data].map(row =>
+    row.map(c => '"' + (c||'').toString().replace(/"/g,'""') + '"').join(',')
+  ).join('\r\n');
+  downloadFile(csvRows, `${module}_${new Date().toLocaleDateString('tr-TR').replace(/\./g,'_')}.csv`, 'text/csv');
+  showToast('CSV indirildi ✅', 'success');
+}
+
+// XLSX dışa aktarım — SheetJS ile gerçek xlsx
+function exportXLSX(module) {
+  if(typeof XLSX === 'undefined') { exportCSV(module); return; }
+  let headers = [], data = [];
+  if(module === 'dersler') {
+    headers = ['Ders Adı','Ders Kodu','Haftalık Saat','Blok','İlk Saat Kısıtı'];
+    data = appData.dersler.map(d => [d.ad, d.kod, d.haftalikSaat||0, d.blok||'', d.ilkSaat||0]);
+  } else if(module === 'siniflar') {
+    headers = ['Sınıf','Düzey','Şube','Günlük Saat','Grup'];
+    data = appData.siniflar.map(s => [s.ad, s.duzey, s.sube, s.gunSaat||8, s.grup||'tam']);
+  } else if(module === 'ogretmenler') {
+    headers = ['Ad','Soyad','Ad Soyad','Branş','Ünvan'];
+    data = appData.ogretmenler.map(o => [o.ad||'', o.soyad||'', o.adSoyad||'', o.brans||'', o.unvan||'']);
+  }
+
+  const wsData = [headers, ...data];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  // Başlık satırı kalın — sadece veri
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, module.charAt(0).toUpperCase() + module.slice(1));
+  XLSX.writeFile(wb, `${module}_${new Date().toLocaleDateString('tr-TR').replace(/\./g,'_')}.xlsx`);
+  showToast('Excel indirildi ✅', 'success');
+}
+
+// Dağıtım için XLSX dışa aktarım — SheetJS ile gerçek xlsx
 function exportDagitimXLS(sinifId) {
   const sinif = appData.siniflar.find(x => x.id === sinifId);
   const gunler = appData.settings.gunler;
   const maxSaat = sinif?.gunSaat || appData.settings.maxSaat;
   const dag = appData.dagitim[sinifId] || {};
 
-  let table = `<table><tr><th>Saat</th>${gunler.map(g=>`<th>${g}</th>`).join('')}</tr>`;
+  const wsData = [['Saat', ...gunler]];
   for(let s = 1; s <= maxSaat; s++) {
-    table += `<tr><td>${s}. Saat</td>`;
+    const row = [`${s}. Saat`];
     gunler.forEach(g => {
       const cell = dag[`${g}-${s}`];
       if(cell?.dersId) {
-        const d = appData.dersler.find(x=>x.id===cell.dersId);
-        const o = appData.ogretmenler.find(x=>x.id===cell.ogretmenId);
-        table += `<td>${d?.ad||''}\n${o?.adSoyad||''}</td>`;
-      } else table += '<td></td>';
+        const d = appData.dersler.find(x => x.id === cell.dersId);
+        const o = appData.ogretmenler.find(x => x.id === cell.ogretmenId);
+        row.push(`${d?.ad||''} - ${o?.adSoyad||''}`);
+      } else row.push('');
     });
-    table += '</tr>';
+    wsData.push(row);
   }
-  table += '</table>';
 
-  const blob = new Blob(['\uFEFF<html><head><meta charset="UTF-8"></head><body>'+table+'</body></html>'], { type:'application/vnd.ms-excel' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url;
-  a.download = `${sinif?.ad||'program'}_${Date.now()}.xls`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  if(typeof XLSX !== 'undefined') {
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sinif?.ad || 'Program');
+    XLSX.writeFile(wb, `${sinif?.ad||'program'}_${new Date().toLocaleDateString('tr-TR').replace(/\./g,'_')}.xlsx`);
+  } else {
+    // Fallback: HTML table as xls
+    let table = '<table><thead><tr>' + wsData[0].map(h=>`<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+    wsData.slice(1).forEach(row => { table += '<tr>' + row.map(c=>`<td>${c}</td>`).join('') + '</tr>'; });
+    table += '</tbody></table>';
+    const blob = new Blob(['\uFEFF<html><head><meta charset="UTF-8"></head><body>'+table+'</body></html>'], {type:'application/vnd.ms-excel'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=`${sinif?.ad||'program'}.xls`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
   showToast('Excel indirildi ✅', 'success');
 }
+
+// Tüm programları XLSX olarak dışa aktar (Programlar sayfası)
+function exportAllProgXLSX() {
+  if(typeof XLSX === 'undefined') { showToast('XLSX kütüphanesi yüklenemedi', 'error'); return; }
+  const gunler = appData.settings.gunler;
+  const wb = XLSX.utils.book_new();
+
+  appData.siniflar.forEach(sinif => {
+    const maxSaat = sinif.gunSaat || appData.settings.maxSaat;
+    const dag = appData.dagitim[sinif.id] || {};
+    const wsData = [['Saat', ...gunler]];
+    for(let s = 1; s <= maxSaat; s++) {
+      const row = [`${s}. Saat`];
+      gunler.forEach(g => {
+        const cell = dag[`${g}-${s}`];
+        if(cell?.dersId) {
+          const d = appData.dersler.find(x => x.id === cell.dersId);
+          const o = appData.ogretmenler.find(x => x.id === cell.ogretmenId);
+          row.push(`${d?.ad||''}\n${o?.adSoyad||''}`);
+        } else row.push('');
+      });
+      wsData.push(row);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{wch:10}, ...gunler.map(()=>({wch:18}))];
+    // Sayfa adı max 31 karakter sınırı
+    const sheetName = sinif.ad.substring(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  if(!appData.siniflar.length) { showToast('Dışa aktarılacak sınıf yok', 'error'); return; }
+  XLSX.writeFile(wb, `tum_sinif_programlari_${new Date().toLocaleDateString('tr-TR').replace(/\./g,'_')}.xlsx`);
+  showToast(`✅ ${appData.siniflar.length} sınıf programı indirildi`, 'success');
+}
+
+
 
 // Dağıtım sayfasındaki xlsx butonunu güncelle
 function exportDagitim(format) {
@@ -4791,7 +5072,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // UI güncelle
   updateStats();
-  document.getElementById('okul-adi-display').textContent = appData.settings.okulAdi || 'Okul adı girilmedi';
+  const okulEl = document.getElementById('okul-adi-display');
+  if(okulEl) okulEl.textContent = appData.settings.okulAdi || 'Okul adı girilmedi';
+  const yilEl = document.getElementById('egitim-yili-display');
+  if(yilEl) yilEl.textContent = appData.settings.egitimYili || '—';
   const lastBackup = localStorage.getItem('sdagitim_last_backup');
   if(lastBackup) document.getElementById('last-backup-time').textContent = lastBackup;
 
@@ -4816,8 +5100,27 @@ window.addEventListener('DOMContentLoaded', () => {
     autoBackup();
   }, 30 * 60 * 1000);
 
-  // Çıkış öncesi kaydet
-  window.addEventListener('beforeunload', () => saveToStorage());
+  // Çıkış öncesi kaydet — güvenilir kayıt
+  window.addEventListener('beforeunload', (e) => {
+    saveToStorage();
+  });
+
+  // Başka sekmede değişiklik olursa senkronize et
+  window.addEventListener('storage', (e) => {
+    if(e.key === 'sdagitim_v1' && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if(parsed.settings) appData.settings = { ...appData.settings, ...parsed.settings };
+        if(Array.isArray(parsed.dersler)) appData.dersler = parsed.dersler;
+        if(Array.isArray(parsed.siniflar)) appData.siniflar = parsed.siniflar;
+        if(Array.isArray(parsed.derslikler)) appData.derslikler = parsed.derslikler;
+        if(Array.isArray(parsed.ogretmenler)) appData.ogretmenler = parsed.ogretmenler;
+        if(parsed.dagitim) appData.dagitim = parsed.dagitim;
+        updateStats();
+        showToast('📡 Başka sekmeden senkronize edildi', 'success');
+      } catch(err) {}
+    }
+  });
 });
 
 // Modal overlay dışına tıklanınca kapat
@@ -4996,35 +5299,6 @@ function saveBulkSinif(btn) {
   showToast(`✅ ${eklendi} sınıf eklendi`, 'success');
 }
 
-// ===================================================================
-// XLSX DIŞA AKTARIM (basit HTML table → xlsx trick)
-// ===================================================================
-function exportXLSX(module) {
-  let headers = [], data = [];
-  if(module === 'dersler') {
-    headers = ['Ders Adı','Ders Kodu','Haftalık Saat','Blok','İlk Saat Kısıtı'];
-    data = appData.dersler.map(d => [d.ad, d.kod, d.haftalikSaat, d.blok, d.ilkSaat]);
-  } else if(module === 'siniflar') {
-    headers = ['Sınıf','Düzey','Şube','Günlük Saat','Grup'];
-    data = appData.siniflar.map(s => [s.ad, s.duzey, s.sube, s.gunSaat, s.grup]);
-  } else if(module === 'ogretmenler') {
-    headers = ['Ad','Soyad','Branş','Ünvan'];
-    data = appData.ogretmenler.map(o => [o.ad, o.soyad, o.brans, o.unvan]);
-  }
-  // HTML table as XLS
-  let table = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
-  data.forEach(row => { table += '<tr>' + row.map(c => `<td>${c||''}</td>`).join('') + '</tr>'; });
-  table += '</tbody></table>';
-  const blob = new Blob(['\uFEFF<html><head><meta charset="UTF-8"></head><body>' + table + '</body></html>'], { type: 'application/vnd.ms-excel' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url;
-  a.download = `${module}_${Date.now()}.xls`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  showToast('Excel indirildi ✅', 'success');
-}
-
-// Dışa aktar menüsünü güncelle – xlsx desteği eklenmiş
 // ===================================================================
 // TOPLU İŞLEM: Tüm sınıflara aynı dersleri kopyala
 // ===================================================================
@@ -5348,6 +5622,18 @@ function filterTopluSinifChips() {
   });
 }
 
+function updateTopluSinifler() {
+  // Seçilen derse göre hangi sınıfların bu dersi zaten aldığını göster
+  const dersId = document.getElementById('toplu-ders-sel')?.value;
+  document.querySelectorAll('#toplu-sinif-chips .chip').forEach(c => {
+    const sinifId = c.dataset.id;
+    const sinif = appData.siniflar.find(x => x.id === sinifId);
+    const zatenAtanmis = sinif?.dersler?.includes(dersId);
+    c.style.opacity = zatenAtanmis ? '0.5' : '1';
+    c.title = zatenAtanmis ? 'Bu ders zaten atanmış' : '';
+  });
+}
+
 function doTopluOgrDersAtama(btn) {
   const modal = btn.closest('[style*="inset:0"]');
   const dersId = document.getElementById('toplu-ders-sel').value;
@@ -5629,6 +5915,91 @@ document.addEventListener('DOMContentLoaded', () => {
   cellSize = appData.settings.cellSize || localStorage.getItem('sdagitim_cellsize') || 'normal';
   cellShow = appData.settings.cellShow || localStorage.getItem('sdagitim_cellshow') || 'kod-ogr';
 });
+
+// ===================================================================
+// KAPSAMLI ÖZET RAPOR — Tüm veriler tek XLSX'te
+// ===================================================================
+function exportOzetRapor() {
+  if(typeof XLSX === 'undefined') { showToast('XLSX kütüphanesi yüklenemedi', 'error'); return; }
+  const wb = XLSX.utils.book_new();
+  const gunler = appData.settings.gunler;
+
+  // 1. Özet sayfası
+  const ozetData = [
+    ['S-Dağıtım Özet Raporu'],
+    ['Okul', appData.settings.okulAdi || ''],
+    ['Eğitim Yılı', appData.settings.egitimYili || ''],
+    ['Müdür', appData.settings.mudurAdi || ''],
+    [''],
+    ['İstatistikler', ''],
+    ['Toplam Ders', appData.dersler.length],
+    ['Toplam Sınıf', appData.siniflar.length],
+    ['Toplam Öğretmen', appData.ogretmenler.length],
+    ['Haftalık Günler', gunler.join(', ')],
+    [''],
+    ['Sınıf', 'Yerleştirilen', 'Toplam', 'Yüzde'],
+  ];
+  appData.siniflar.forEach(s => {
+    const placed = Object.values(appData.dagitim[s.id] || {}).filter(v => v.dersId).length;
+    const total = (s.gunSaat || 8) * gunler.length;
+    ozetData.push([s.ad, placed, total, total > 0 ? Math.round(placed / total * 100) + '%' : '0%']);
+  });
+  const wsOzet = XLSX.utils.aoa_to_sheet(ozetData);
+  wsOzet['!cols'] = [{wch:22},{wch:16},{wch:12},{wch:10}];
+  XLSX.utils.book_append_sheet(wb, wsOzet, 'Özet');
+
+  // 2. Dersler sayfası
+  const derslerData = [['Ders Adı','Ders Kodu','Haftalık Saat','Blok','Sınıf Sayısı','Öğretmen Sayısı']];
+  appData.dersler.forEach(d => {
+    const sinifSayisi = appData.siniflar.filter(s => s.dersler?.includes(d.id)).length;
+    const ogrSayisi = appData.ogretmenler.filter(o => o.atananDersler?.some(ad => ad.dersId === d.id)).length;
+    derslerData.push([d.ad, d.kod, d.haftalikSaat||0, d.blok||'', sinifSayisi, ogrSayisi]);
+  });
+  const wsDersler = XLSX.utils.aoa_to_sheet(derslerData);
+  wsDersler['!cols'] = [{wch:20},{wch:10},{wch:14},{wch:12},{wch:12},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, wsDersler, 'Dersler');
+
+  // 3. Öğretmenler sayfası
+  const ogrData = [['Ad','Soyad','Branş','Ünvan','Haftalık Saat','Atanan Ders']];
+  appData.ogretmenler.forEach(o => {
+    let toplamSaat = 0;
+    appData.siniflar.forEach(sinif => {
+      Object.values(appData.dagitim[sinif.id] || {}).forEach(cell => {
+        if(cell.ogretmenId === o.id || cell.ogretmenId2 === o.id) toplamSaat++;
+      });
+    });
+    ogrData.push([o.ad||'', o.soyad||'', o.brans||'', o.unvan||'', toplamSaat, o.atananDersler?.length||0]);
+  });
+  const wsOgr = XLSX.utils.aoa_to_sheet(ogrData);
+  wsOgr['!cols'] = [{wch:14},{wch:14},{wch:16},{wch:14},{wch:14},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, wsOgr, 'Öğretmenler');
+
+  // 4. Her sınıf için ayrı program sayfası
+  appData.siniflar.forEach(sinif => {
+    const maxSaat = sinif.gunSaat || appData.settings.maxSaat;
+    const dag = appData.dagitim[sinif.id] || {};
+    const wsData = [[`${sinif.ad} — ${appData.settings.egitimYili||''}`], ['Saat', ...gunler]];
+    for(let s = 1; s <= maxSaat; s++) {
+      const row = [`${s}. Saat`];
+      gunler.forEach(g => {
+        const cell = dag[`${g}-${s}`];
+        if(cell?.dersId) {
+          const d = appData.dersler.find(x => x.id === cell.dersId);
+          const o = appData.ogretmenler.find(x => x.id === cell.ogretmenId);
+          row.push(`${d?.ad||''} / ${o?.adSoyad||''}`);
+        } else row.push('');
+      });
+      wsData.push(row);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{wch:10}, ...gunler.map(()=>({wch:18}))];
+    XLSX.utils.book_append_sheet(wb, ws, sinif.ad.substring(0,31));
+  });
+
+  const tarih = new Date().toLocaleDateString('tr-TR').replace(/\./g,'_');
+  XLSX.writeFile(wb, `sdagitim_ozet_${tarih}.xlsx`);
+  showToast('✅ Kapsamlı özet rapor indirildi!', 'success');
+}
 
 // ===================================================================
 // GELİŞMİŞ ÇAKIŞMA RAPORU
