@@ -1283,6 +1283,37 @@ let importColumns = [];
 let _appReady = false;
 let _saveIndicatorTimer = null;
 
+// ===================================================================
+// GÜVENLİ MODAL KAPATMA YARDIMCILARI
+// ===================================================================
+// Dinamik modal bul — data-dmodal attribute veya style inset içeren element
+function findParentModal(el) {
+  if(!el) return null;
+  // Önce data-dmodal attribute'una bak
+  let node = el.closest ? el.closest('[data-dmodal="1"]') : null;
+  if(node) return node;
+  // Fallback: style içinde position:fixed olan parent bul
+  node = el.parentElement;
+  while(node && node !== document.body) {
+    const st = node.getAttribute('style') || '';
+    if(st.includes('position:fixed') && (st.includes('inset') || st.includes('top:0'))) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+// Güvenli kapat — null kontrolü ile
+function closeTopModal(el) {
+  const modal = findParentModal(el);
+  if(modal) {
+    if(modal) modal.remove();
+  } else {
+    // Fallback: en üstteki açık dinamik modalı kapat
+    const modals = document.querySelectorAll('[data-dmodal="1"]');
+    if(modals.length) modals[modals.length - 1].remove();
+  }
+}
+
 
 function saveToStorage() {
   if(!_appReady) return; // İlk yükleme tamamlanmadan kaydetme — veri kaybını önler
@@ -1740,6 +1771,7 @@ function openDersSinifTopluAtama() {
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:90vh;overflow-y:auto;">
     <div style="font-size:15px;font-weight:700;margin-bottom:10px;">⚡ Dersleri Sınıflara Toplu Ata</div>
     <div class="tip-box" style="margin-bottom:10px;">
@@ -1767,7 +1799,7 @@ function openDersSinifTopluAtama() {
       ${appData.siniflar.map(s => `<div class="chip" data-id="${s.id}" data-duzey="${s.duzey}" onclick="this.classList.toggle('selected')">${s.ad}</div>`).join('')}
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="doDersSinifTopluAtama(this)">✅ Ata</button>
     </div>
   </div>`;
@@ -1782,7 +1814,7 @@ function filterTdSinifChips() {
 }
 
 function doDersSinifTopluAtama(btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const dersIds = [...document.querySelectorAll('#td-ders-chips .chip.selected')].map(c => c.dataset.id);
   const sinifIds = [...document.querySelectorAll('#td-sinif-chips .chip.selected')].map(c => c.dataset.id);
   if(!dersIds.length || !sinifIds.length) { showToast('Ders ve sınıf seçin', 'error'); return; }
@@ -1799,7 +1831,7 @@ function doDersSinifTopluAtama(btn) {
   });
   saveToStorage();
   renderSiniflar();
-  modal.remove();
+  if(modal) modal.remove();
   showToast(`✅ ${eklendi} ders-sınıf ataması yapıldı`, 'success');
 }
 
@@ -2158,6 +2190,7 @@ function getSinifAd(id) { return appData.siniflar.find(x => x.id === id)?.ad || 
 function addOgrDers() {
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:85vh;overflow-y:auto;">
     <div style="font-size:15px;font-weight:700;margin-bottom:12px;">📚 Ders Ata</div>
     <label style="font-size:12px;font-weight:600;color:var(--text2);">Ders Seç</label>
@@ -2174,7 +2207,7 @@ function addOgrDers() {
       ${appData.siniflar.map(s => `<div class="chip" data-id="${s.id}" onclick="this.classList.toggle('selected')">${s.ad}</div>`).join('')}
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="confirmOgrDers(this)">Ekle / Güncelle</button>
     </div>
   </div>`;
@@ -2195,7 +2228,7 @@ function selectAllSinifChips(sel) {
 }
 
 function confirmOgrDers(btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const dersId = document.getElementById('tmp-ders-sel').value;
   if(!dersId) { showToast('Ders seçin', 'error'); return; }
   const siniflar = [...document.querySelectorAll('#tmp-sinif-chips .chip.selected')].map(c => c.dataset.id);
@@ -2204,7 +2237,7 @@ function confirmOgrDers(btn) {
   if(existing >= 0) window._tmpOgrDersList[existing] = { dersId, siniflar };
   else window._tmpOgrDersList.push({ dersId, siniflar });
   renderOgrDersList([...window._tmpOgrDersList]);
-  modal.remove();
+  if(modal) modal.remove();
   showToast('Ders atandı ✅', 'success');
 }
 
@@ -2437,6 +2470,7 @@ function applyMusaitlikToSelected() {
   // Öğretmen seçim modalı aç
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:4000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:80vh;overflow-y:auto;">
     <div style="font-size:14px;font-weight:700;margin-bottom:10px;">Öğretmen Seç</div>
     <div style="display:flex;gap:6px;margin-bottom:8px;">
@@ -2447,7 +2481,7 @@ function applyMusaitlikToSelected() {
       ${appData.ogretmenler.map(o => `<div class="chip selected" data-id="${o.id}" onclick="this.classList.toggle('selected')">${o.adSoyad}</div>`).join('')}
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="doApplyMusaitlik(this)">Uygula</button>
     </div>
   </div>`;
@@ -2455,7 +2489,7 @@ function applyMusaitlikToSelected() {
 }
 
 function doApplyMusaitlik(btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const ids = [...document.querySelectorAll('#apply-ogr-chips .chip.selected')].map(c => c.dataset.id);
   pushHistory();
   ids.forEach(id => {
@@ -2463,7 +2497,7 @@ function doApplyMusaitlik(btn) {
     if(ogr) ogr.musaitlik = { ...currentMusaitlik };
   });
   saveToStorage();
-  modal.remove();
+  if(modal) modal.remove();
   closeModal('musaitlik-modal');
   showToast(`✅ ${ids.length} öğretmene uygulandı`, 'success');
 }
@@ -2483,12 +2517,13 @@ function loadMusaitlikSablon() {
   if(!adlar.length) { showToast('Kayıtlı şablon yok', 'error'); return; }
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:4000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:16px;width:100%;max-width:340px;padding:16px;">
     <div style="font-size:14px;font-weight:700;margin-bottom:10px;">Şablon Yükle</div>
     <div style="display:grid;gap:6px;">
       ${adlar.map(ad => `<button class="btn btn-secondary" onclick="applyMusaitlikSablon('${ad}',this)">${ad}</button>`).join('')}
     </div>
-    <button class="btn btn-danger btn-full" style="margin-top:10px;" onclick="this.closest('[style*=inset]').remove()">Kapat</button>
+    <button class="btn btn-danger btn-full" style="margin-top:10px;" onclick="closeTopModal(this)">Kapat</button>
   </div>`;
   document.body.appendChild(modal);
 }
@@ -2498,7 +2533,7 @@ function applyMusaitlikSablon(ad, btn) {
   if(sablonlar[ad]) {
     currentMusaitlik = { ...sablonlar[ad] };
     buildMusaitlikGrid();
-    btn.closest('[style*="inset:0"]').remove();
+    closeTopModal(btn);
     showToast(`"${ad}" şablonu yüklendi`, 'success');
   }
 }
@@ -2855,6 +2890,7 @@ function clickOgrCell(ogrId, key) {
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
 
   let icerik = '';
   if(found.length > 0) {
@@ -2873,7 +2909,7 @@ function clickOgrCell(ogrId, key) {
         <button class="btn btn-${cell.kilitli ? 'warn' : 'secondary'} btn-sm" onclick="toggleOgrCellLock('${sinif.id}','${key}',${!cell.kilitli},this)">
           ${cell.kilitli ? '🔓 Kilidi Aç' : '🔒 Kilitle'}
         </button>
-        <button class="btn btn-secondary btn-sm" onclick="showPage('dagitim');document.getElementById('dagitim-sinif-select').value='${sinif.id}';loadDagitimTable();this.closest('[style*=inset]').remove();">📋 Sınıf Tablosuna Git</button>
+        <button class="btn btn-secondary btn-sm" onclick="showPage('dagitim');document.getElementById('dagitim-sinif-select').value='${sinif.id}';loadDagitimTable();closeTopModal(this);">📋 Sınıf Tablosuna Git</button>
       </div>`;
   } else {
     // Boş hücre — ders girebiliriz
@@ -2908,7 +2944,7 @@ function clickOgrCell(ogrId, key) {
     <div style="font-size:14px;font-weight:700;margin-bottom:4px;">📅 ${ogr?.adSoyad || ''}</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">${gun} — ${saat}. Saat</div>
     ${icerik}
-    <button class="btn btn-secondary btn-full" style="margin-top:10px;" onclick="this.closest('[style*=inset]').remove()">Kapat</button>
+    <button class="btn btn-secondary btn-full" style="margin-top:10px;" onclick="closeTopModal(this)">Kapat</button>
   </div>`;
   document.body.appendChild(modal);
 }
@@ -2920,7 +2956,7 @@ function clearOgrCellDirect(ogrId, sinifId, key, btn) {
   delete appData.dagitim[sinifId][key];
   saveToStorage();
   renderOgrDagitimTable(ogrId);
-  btn.closest('[style*="inset:0"]').remove();
+  closeTopModal(btn);
   showToast('Temizlendi ✅', 'success');
 }
 
@@ -2935,7 +2971,7 @@ function toggleOgrCellLock(sinifId, key, lock, btn) {
 }
 
 function saveOgrCellEntry(ogrId, key, btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const val = document.getElementById('ogr-cell-ders-sel').value;
   if(!val) { showToast('Seçim yapın', 'error'); return; }
   const [dersId, sinifId] = val.split('|');
@@ -2947,7 +2983,7 @@ function saveOgrCellEntry(ogrId, key, btn) {
   appData.dagitim[sinifId][key] = { dersId, ogretmenId: ogrId, manuel: true, kilitli: false };
   saveToStorage();
   renderOgrDagitimTable(ogrId);
-  modal.remove();
+  if(modal) modal.remove();
   showToast('✅ Kaydedildi', 'success');
 }
 
@@ -3012,6 +3048,7 @@ function clickDagitimCell(sinifId, key) {
   const [gun, saat] = key.split('-');
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
 
   // Bu sınıfta tanımlı dersler ve bunlara atanmış öğretmenler
   const dersOgrList = [];
@@ -3062,7 +3099,7 @@ function clickDagitimCell(sinifId, key) {
       </label>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="saveCellEntry('${sinifId}','${key}',this)">Kaydet</button>
     </div>
   </div>`;
@@ -3095,7 +3132,7 @@ function clickDagitimCell(sinifId, key) {
 }
 
 function saveCellEntry(sinifId, key, btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const val = document.getElementById('tmp-cell-sel').value;
   const val2 = document.getElementById('tmp-cell-sel2').value;
   const kilitli = document.getElementById('tmp-kilit').checked;
@@ -4859,6 +4896,7 @@ function shiftBlock(sinifId, key) {
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:16px;width:100%;max-width:340px;padding:16px;">
     <div style="font-size:14px;font-weight:700;margin-bottom:12px;">↕️ Bloğu Kaydır — ${getDersKod(cell.dersId)}</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">Mevcut: ${gun} ${blokSaatler.join('+')}. saatler</div>
@@ -4875,14 +4913,14 @@ function shiftBlock(sinifId, key) {
         </button>`;
       }).join('')}
     </div>
-    <button class="btn btn-danger btn-full" style="margin-top:10px;" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+    <button class="btn btn-danger btn-full" style="margin-top:10px;" onclick="closeTopModal(this)">İptal</button>
   </div>`;
   document.body.appendChild(modal);
 }
 
 function doShiftBlock(sinifId, gun, eskiSaatler, yeniSaatler, btn) {
   const dag = appData.dagitim[sinifId];
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   pushHistory();
   // Eski hücreleri al
   const cellData = {};
@@ -4896,7 +4934,7 @@ function doShiftBlock(sinifId, gun, eskiSaatler, yeniSaatler, btn) {
   saveToStorage();
   renderDagitimTable(sinifId);
   updateDagitimStats(sinifId);
-  modal.remove();
+  if(modal) modal.remove();
   showToast('Blok kaydırıldı ✅', 'success');
 }
 
@@ -4906,6 +4944,7 @@ function doShiftBlock(sinifId, gun, eskiSaatler, yeniSaatler, btn) {
 function openGlobalSearch() {
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:5000;display:flex;flex-direction:column;padding:20px;';
+  modal.dataset.dmodal = '1';
   modal.id = 'global-search-modal';
   modal.innerHTML = `
     <div style="background:var(--bg2);border-radius:16px;padding:12px;margin-bottom:10px;">
@@ -5313,6 +5352,7 @@ function restoreFromFile(input) {
 function openBulkSinifModal() {
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:80vh;overflow-y:auto;">
     <div style="font-size:15px;font-weight:700;margin-bottom:12px;">⚡ Toplu Sınıf Ekle</div>
     <div class="tip-box" style="margin-bottom:10px;">
@@ -5340,7 +5380,7 @@ function openBulkSinifModal() {
       </select>
     </div>
     <div style="display:flex;gap:8px;margin-top:4px;">
-      <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="saveBulkSinif(this)">Oluştur</button>
     </div>
   </div>`;
@@ -5348,7 +5388,7 @@ function openBulkSinifModal() {
 }
 
 function saveBulkSinif(btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const duzeyler = document.getElementById('bulk-duzey').value.split(',').map(s => s.trim()).filter(Boolean);
   const subeler = document.getElementById('bulk-sube').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
   const gunSaat = parseInt(document.getElementById('bulk-saat').value) || 8;
@@ -5385,6 +5425,7 @@ function copyDerslerToAll(sourceSinifId) {
   // Seçili sınıflara mı yoksa tümüne mi gönderileceğini sor
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
   const chips = appData.siniflar.filter(s=>s.id!==sourceSinifId).map(s =>
     `<div class="chip selected" data-id="${s.id}" onclick="this.classList.toggle('selected')">${s.ad}</div>`
   ).join('');
@@ -5397,7 +5438,7 @@ function copyDerslerToAll(sourceSinifId) {
     </div>
     <div id="copy-chips" class="chip-group" style="margin-bottom:14px;">${chips}</div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="doCopyDersler('${sourceSinifId}',this)">Kopyala</button>
     </div>
   </div>`;
@@ -5405,7 +5446,7 @@ function copyDerslerToAll(sourceSinifId) {
 }
 
 function doCopyDersler(sourceSinifId, btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const source = appData.siniflar.find(x => x.id === sourceSinifId);
   const targets = [...document.querySelectorAll('#copy-chips .chip.selected')].map(c => c.dataset.id);
   if(!targets.length) { showToast('Hedef sınıf seçin', 'error'); return; }
@@ -5474,6 +5515,7 @@ function showGenelBakis() {
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:3000;display:flex;flex-direction:column;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `
     <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px;">
       <span style="font-size:14px;font-weight:700;">🔭 Genel Bakış — Tüm Sınıflar</span>
@@ -5481,7 +5523,7 @@ function showGenelBakis() {
       <select id="genel-gun-sel" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px;font-size:12px;" onchange="renderGenelBakis()">
         ${gunler.map(g => `<option value="${g}">${g}</option>`).join('')}
       </select>
-      <button class="btn btn-secondary btn-sm" onclick="this.closest('[style*=inset]').remove()">✕ Kapat</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeTopModal(this)">✕ Kapat</button>
     </div>
     <div id="genel-bakis-content" style="flex:1;overflow:auto;padding:10px;"></div>`;
   document.body.appendChild(modal);
@@ -5603,6 +5645,7 @@ function showOgretmenSaatRaporu() {
   const uyarilar = checkOgretmenSaatUyarilari();
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
 
   let icerik = '';
   if(uyarilar.length === 0) {
@@ -5615,14 +5658,14 @@ function showOgretmenSaatRaporu() {
           <div style="font-size:12px;font-weight:600;">${u.ogr.adSoyad}</div>
           <div style="font-size:10px;color:var(--warn);">Yerleşen: ${u.toplamSaat} / Beklenen: ${u.atananSaatler} saat (${u.eksik} eksik)</div>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="showPage('dagitim');document.getElementById('dagitim-ogr-select').value='${u.ogr.id}';switchDagitimTab('ogretmen',document.getElementById('tab-dagitim-ogr'));loadOgrDagitimTable();this.closest('[style*=inset]').remove()">Git</button>
+        <button class="btn btn-secondary btn-sm" onclick="showPage('dagitim');document.getElementById('dagitim-ogr-select').value='${u.ogr.id}';switchDagitimTab('ogretmen',document.getElementById('tab-dagitim-ogr'));loadOgrDagitimTable();closeTopModal(this)">Git</button>
       </div>`).join('');
   }
 
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:80vh;overflow-y:auto;">
     <div style="font-size:14px;font-weight:700;margin-bottom:10px;">📊 Öğretmen Saat Raporu</div>
     ${icerik}
-    <button class="btn btn-secondary btn-full" style="margin-top:10px;" onclick="this.closest('[style*=inset]').remove()">Kapat</button>
+    <button class="btn btn-secondary btn-full" style="margin-top:10px;" onclick="closeTopModal(this)">Kapat</button>
   </div>`;
   document.body.appendChild(modal);
 }
@@ -5649,6 +5692,7 @@ function openTopluOgrDersAtama() {
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:90vh;overflow-y:auto;">
     <div style="font-size:15px;font-weight:700;margin-bottom:12px;">⚡ Toplu Ders-Öğretmen Atama</div>
     <div class="tip-box" style="margin-bottom:10px;">
@@ -5684,7 +5728,7 @@ function openTopluOgrDersAtama() {
       </select>
     </div>
     <div style="display:flex;gap:8px;margin-top:4px;">
-      <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="doTopluOgrDersAtama(this)">⚡ Ata</button>
     </div>
   </div>`;
@@ -5711,7 +5755,7 @@ function updateTopluSinifler() {
 }
 
 function doTopluOgrDersAtama(btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const dersId = document.getElementById('toplu-ders-sel').value;
   const ogrId = document.getElementById('toplu-ogr-sel').value;
   const sinifIds = [...document.querySelectorAll('#toplu-sinif-chips .chip.selected')].map(c => c.dataset.id);
@@ -5787,6 +5831,7 @@ function showBlokBolmeOnerisi(sinifId, dersId, blokSize) {
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:5000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.dataset.dmodal = '1';
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:16px;width:100%;max-width:360px;padding:16px;">
     <div style="font-size:14px;font-weight:700;color:var(--warn);margin-bottom:8px;">⚠️ Blok Yerleştirilemedi</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">
@@ -5797,13 +5842,13 @@ function showBlokBolmeOnerisi(sinifId, dersId, blokSize) {
       <button class="btn btn-warn btn-sm" onclick="bozBlokVeYeniden('${sinifId}','${dersId}',${blokSize},this)">
         ✂️ Bloğu böl (${blokSize} → ${Array(blokSize).fill(1).join('+')}) ve yeniden dağıt
       </button>
-      <button class="btn btn-secondary btn-sm" onclick="showPage('ogretmenler');this.closest('[style*=inset]').remove()">
+      <button class="btn btn-secondary btn-sm" onclick="showPage('ogretmenler');closeTopModal(this)">
         🗓 Öğretmen müsaitliğini kontrol et
       </button>
-      <button class="btn btn-secondary btn-sm" onclick="showPage('siniflar');this.closest('[style*=inset]').remove()">
+      <button class="btn btn-secondary btn-sm" onclick="showPage('siniflar');closeTopModal(this)">
         📅 Sınıf saatini artır
       </button>
-      <button class="btn btn-secondary btn-sm" onclick="this.closest('[style*=inset]').remove()">
+      <button class="btn btn-secondary btn-sm" onclick="closeTopModal(this)">
         İptal
       </button>
     </div>
@@ -5812,7 +5857,7 @@ function showBlokBolmeOnerisi(sinifId, dersId, blokSize) {
 }
 
 function bozBlokVeYeniden(sinifId, dersId, blokSize, btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   const ders = appData.dersler.find(x => x.id === dersId);
   if(!ders) return;
   pushHistory();
@@ -5838,6 +5883,7 @@ function bozBlokVeYeniden(sinifId, dersId, blokSize, btn) {
 function openTopluSaatAyar() {
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
   const duzeyler = [...new Set(appData.siniflar.map(s => s.duzey))].sort();
 
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:80vh;overflow-y:auto;">
@@ -5859,7 +5905,7 @@ function openTopluSaatAyar() {
       }).join('')}
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
-      <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style*=inset]').remove()">İptal</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
       <button class="btn btn-primary" style="flex:1" onclick="doTopluSaatAyar(this)">✅ Uygula</button>
     </div>
   </div>`;
@@ -5867,7 +5913,7 @@ function openTopluSaatAyar() {
 }
 
 function doTopluSaatAyar(btn) {
-  const modal = btn.closest('[style*="inset:0"]');
+  const modal = findParentModal(btn);
   pushHistory();
   document.querySelectorAll('#toplu-saat-rows [data-duzey]').forEach(el => {
     const duzey = el.dataset.duzey;
@@ -5877,7 +5923,7 @@ function doTopluSaatAyar(btn) {
   });
   saveToStorage();
   renderSiniflar();
-  modal.remove();
+  if(modal) modal.remove();
   showToast('✅ Tüm sınıf saatleri güncellendi', 'success');
 }
 
@@ -6285,6 +6331,7 @@ function generateCakismaRaporu() {
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
 
   let icerik = '';
   if(cakismalar.length === 0) {
@@ -6310,7 +6357,7 @@ function generateCakismaRaporu() {
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:80vh;overflow-y:auto;">
     <div style="font-size:14px;font-weight:700;margin-bottom:12px;">🔍 Çakışma Raporu</div>
     ${icerik}
-    <button class="btn btn-secondary btn-full" style="margin-top:10px;" onclick="this.closest('[style*=inset]').remove()">Kapat</button>
+    <button class="btn btn-secondary btn-full" style="margin-top:10px;" onclick="closeTopModal(this)">Kapat</button>
   </div>`;
   document.body.appendChild(modal);
 }
@@ -6516,6 +6563,7 @@ function exportDerslikCarsaf(derslikId) {
 function openQuickDuzeyModal() {
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:4000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.dataset.dmodal = '1';
   const mevcutDuzeyler = [...new Set(appData.siniflar.map(s => s.duzey))].sort();
   modal.innerHTML = `<div style="background:var(--bg2);border-radius:16px;width:100%;max-width:340px;padding:16px;">
     <div style="font-size:15px;font-weight:700;margin-bottom:12px;">⚡ Sınıf Düzeyi Seç</div>
@@ -6523,7 +6571,7 @@ function openQuickDuzeyModal() {
       ${mevcutDuzeyler.map(d => `<div class="chip" onclick="setQuickDuzey('${d}',this)">${d}. Sınıf</div>`).join('')}
       ${['5','6','7','8','9','10','11','12'].filter(d => !mevcutDuzeyler.includes(d)).map(d => `<div class="chip" style="opacity:0.5;" onclick="setQuickDuzey('${d}',this)">${d}. Sınıf</div>`).join('')}
     </div>
-    <button class="btn btn-secondary btn-full" onclick="this.closest('[style*=inset]').remove()">Kapat</button>
+    <button class="btn btn-secondary btn-full" onclick="closeTopModal(this)">Kapat</button>
   </div>`;
   document.body.appendChild(modal);
 }
@@ -6531,7 +6579,7 @@ function openQuickDuzeyModal() {
 function setQuickDuzey(duzey, chip) {
   const duzeyEl = document.getElementById('s-duzey');
   if(duzeyEl) duzeyEl.value = duzey;
-  chip.closest('[style*="inset:0"]').remove();
+  closeTopModal(chip);
   updateSinifSaatGostergesi();
 }
 
@@ -6557,6 +6605,7 @@ function openOgretmenDetay(ogrId) {
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
 
   const atamaHtml = (ogr.atananDersler || []).map(ad => {
     const ders = appData.dersler.find(x => x.id === ad.dersId);
@@ -6577,7 +6626,7 @@ function openOgretmenDetay(ogrId) {
         <div style="font-size:16px;font-weight:800;">${ogr.adSoyad}</div>
         <div style="font-size:12px;color:var(--text2);">${ogr.brans || '—'} · ${ogr.unvan || 'Öğretmen'}</div>
       </div>
-      <button class="btn btn-secondary btn-sm btn-icon" onclick="this.closest('[style*=inset]').remove()">✕</button>
+      <button class="btn btn-secondary btn-sm btn-icon" onclick="closeTopModal(this)">✕</button>
     </div>
 
     <!-- İstatistikler -->
@@ -6607,12 +6656,12 @@ function openOgretmenDetay(ogrId) {
     <div style="overflow-x:auto;">${buildOgrMiniTable(ogrId)}</div>` : ''}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
-      <button class="btn btn-secondary" onclick="this.closest('[style*=inset]').remove();openOgretmenModal('${ogrId}')">✏️ Düzenle</button>
-      <button class="btn btn-secondary" onclick="this.closest('[style*=inset]').remove();openOgrMusaitlikById('${ogrId}')">🗓 Müsaitlik</button>
-      <button class="btn btn-secondary" onclick="this.closest('[style*=inset]').remove();showPage('dagitim');document.getElementById('tab-dagitim-ogr').click();document.getElementById('dagitim-ogr-select').value='${ogrId}';loadOgrDagitimTable()">📋 Programı Görüntüle</button>
+      <button class="btn btn-secondary" onclick="closeTopModal(this);openOgretmenModal('${ogrId}')">✏️ Düzenle</button>
+      <button class="btn btn-secondary" onclick="closeTopModal(this);openOgrMusaitlikById('${ogrId}')">🗓 Müsaitlik</button>
+      <button class="btn btn-secondary" onclick="closeTopModal(this);showPage('dagitim');document.getElementById('tab-dagitim-ogr').click();document.getElementById('dagitim-ogr-select').value='${ogrId}';loadOgrDagitimTable()">📋 Programı Görüntüle</button>
           <button class="btn btn-secondary" data-ogrid="${ogrId}" onclick="handleOgrPdfBtn(this)">📄 PDF</button>
     </div>
-    <button class="btn btn-secondary btn-full" style="margin-top:8px;" onclick="this.closest('[style*=inset]').remove()">Kapat</button>
+    <button class="btn btn-secondary btn-full" style="margin-top:8px;" onclick="closeTopModal(this)">Kapat</button>
   </div>`;
   document.body.appendChild(modal);
 }
@@ -6732,7 +6781,7 @@ function selectAllChips(selector, selected) {
 
 function closeAndExportOgr(btn, event) {
   event.stopPropagation();
-  const modal = btn.closest('[style*="inset"]');
+  const modal = findParentModal(btn);
   const ogrId = btn.closest('[data-ogr-id]')?.dataset.ogrId || 
     btn.closest('.modal-body, [style*="padding"]')?.querySelector('[data-ogr-id]')?.dataset.ogrId;
   if(modal) modal.remove();
@@ -6746,7 +6795,7 @@ function chipSelectAll(containerSel, val) {
 
 function handleOgrPdfBtn(btn) {
   const ogrId = btn.dataset.ogrid;
-  const modal = btn.closest('[style*="inset"]');
+  const modal = findParentModal(btn);
   if(modal) modal.remove();
   const ogr = appData.ogretmenler.find(x => x.id === ogrId);
   if(ogr) exportOgrPdf(ogr);
