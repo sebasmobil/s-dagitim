@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<title>S-Dağıtım v2.1</title>
+<title>S-Dağıtım v2.2</title>
 <style>
 /* ===== TEMA DEĞİŞKENLERİ ===== */
 :root {
@@ -445,7 +445,7 @@ textarea { resize: vertical; min-height: 60px; }
 <!-- ÜSTTE BAR -->
 <div id="top-bar">
   <div class="app-logo">📅 S-Dağıtım</div>
-  <div class="app-ver">v2.1</div>
+  <div class="app-ver">v2.2</div>
   <div id="save-indicator" style="font-size:10px;color:var(--success);display:none;align-items:center;gap:3px;">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><polyline points="20 6 9 17 4 12"/></svg>
     Kaydedildi
@@ -619,15 +619,16 @@ textarea { resize: vertical; min-height: 60px; }
     </div>
     <!-- Sınıflar -->
     <div id="siniflar-tab">
-      <div class="form-row" style="margin-bottom:10px;">
+      <div class="form-row" style="margin-bottom:10px;flex-wrap:wrap;gap:6px;">
         <button class="btn btn-primary" onclick="openSinifModal()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Yeni Sınıf
         </button>
         <button class="btn btn-warn btn-sm" onclick="openBulkSinifModal()">⚡ Toplu</button>
-        <button class="btn btn-secondary" onclick="openImportModal('siniflar')">📥 İçe Aktar</button>
-        <button class="btn btn-secondary" onclick="exportData('siniflar')">📊 Excel</button>
-        <button class="btn btn-secondary" onclick="exportModulPDF('siniflar')">📄 PDF</button>
+        <button class="btn btn-secondary btn-sm" onclick="openDersAktarimSecici()">📋 Ders Aktar</button>
+        <button class="btn btn-secondary btn-sm" onclick="openImportModal('siniflar')">📥 İçe Aktar</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportData('siniflar')">📊 Excel</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportModulPDF('siniflar')">📄 PDF</button>
       </div>
       <div id="siniflar-list"></div>
     </div>
@@ -1253,7 +1254,7 @@ textarea { resize: vertical; min-height: 60px; }
 // ===================================================================
 // VERİ YAPISI
 // ===================================================================
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.2';
 let appData = {
   settings: {
     okulAdi: '', egitimYili: '2024-2025', mudurAdi: '', mudurUnvan: 'Okul Müdürü',
@@ -2032,7 +2033,7 @@ function renderSiniflar() {
         <div class="list-item-sub">${s.gunSaat} saat/gün · ${dCount} ders (${secili}/${hedef} saat) · ${s.grup === 'tam' ? 'Tam Gün' : s.grup === 'sabah' ? 'Sabah' : 'Öğleden Sonra'}</div>
       </div>
       <div class="list-item-actions">
-        <button class="btn btn-secondary btn-sm btn-icon" title="Dersleri Tüm Sınıflara Kopyala" onclick="copyDerslerToAll('${s.id}')">📋</button>
+        <button class="btn btn-secondary btn-sm" title="Dersleri başka sınıflara aktar" onclick="copyDerslerToAll('${s.id}')" style="display:flex;align-items:center;gap:4px;font-size:11px;">📋 Aktar</button>
         <button class="btn btn-secondary btn-sm btn-icon" onclick="openSinifModal('${s.id}')">✏️</button>
         <button class="btn btn-danger btn-sm btn-icon" onclick="deleteSinif('${s.id}')">🗑️</button>
       </div>`;
@@ -5481,43 +5482,209 @@ function saveBulkSinif(btn) {
 // ===================================================================
 function copyDerslerToAll(sourceSinifId) {
   const source = appData.siniflar.find(x => x.id === sourceSinifId);
-  if(!source || !source.dersler?.length) { showToast('Kaynak sınıfın dersi yok', 'error'); return; }
+  if(!source || !source.dersler?.length) { showToast('Bu sınıfın dersi yok', 'error'); return; }
 
-  // Seçili sınıflara mı yoksa tümüne mi gönderileceğini sor
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:3000;display:flex;align-items:flex-end;';
+  modal.dataset.dmodal = '1';
+
+  // Kaynak sınıfın dersleri
+  const dersChips = source.dersler.map(did => {
+    const d = appData.dersler.find(x => x.id === did);
+    if(!d) return '';
+    const { saat } = getDersSaatiForSinif(d, source);
+    return `<div class="chip selected" data-id="${did}" onclick="this.classList.toggle('selected')">${d.ad} <span style="font-size:9px;opacity:0.7;">(${parseInt(saat)||'?'}s)</span></div>`;
+  }).join('');
+
+  // Hedef sınıflar — düzey filtresi ile
+  const duzeyler = [...new Set(appData.siniflar.filter(s=>s.id!==sourceSinifId).map(s=>s.duzey))].sort();
+  const hedefChips = appData.siniflar.filter(s => s.id !== sourceSinifId).map(s => {
+    const pct = s.dersler?.length ? Math.round(s.dersler.length / source.dersler.length * 100) : 0;
+    return `<div class="chip" data-id="${s.id}" data-duzey="${s.duzey}" onclick="this.classList.toggle('selected')"
+      style="position:relative;">
+      ${s.ad}
+      ${s.dersler?.length ? `<span style="font-size:8px;color:var(--text3);display:block;">${s.dersler.length} ders var</span>` : '<span style="font-size:8px;color:var(--text3);display:block;">Ders yok</span>'}
+    </div>`;
+  }).join('');
+
+  const duzeyFilterOpts = duzeyler.map(d => `<option value="${d}">${d}. Sınıflar</option>`).join('');
+
+  modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:90vh;overflow-y:auto;">
+
+    <!-- Başlık -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <div style="width:36px;height:36px;border-radius:8px;background:var(--accent2);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;flex-shrink:0;">${source.ad}</div>
+      <div>
+        <div style="font-size:15px;font-weight:800;">Dersleri Aktar</div>
+        <div style="font-size:11px;color:var(--text2);">${source.ad} sınıfından seçili dersleri hedef sınıflara kopyala</div>
+      </div>
+    </div>
+
+    <!-- Adım 1: Hangi dersler -->
+    <div style="font-size:11px;font-weight:700;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">1. Aktarılacak Dersler</div>
+    <div style="display:flex;gap:6px;margin-bottom:6px;">
+      <button class="btn btn-secondary btn-sm" onclick="selectAllChips('#copy-ders-chips',true)">Tümü</button>
+      <button class="btn btn-secondary btn-sm" onclick="selectAllChips('#copy-ders-chips',false)">Temizle</button>
+    </div>
+    <div id="copy-ders-chips" class="chip-group" style="margin-bottom:14px;">${dersChips}</div>
+
+    <!-- Adım 2: Hedef sınıflar -->
+    <div style="font-size:11px;font-weight:700;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">2. Hedef Sınıflar</div>
+    <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" onclick="selectAllChips('#copy-sinif-chips',true)">Tümü</button>
+      <button class="btn btn-secondary btn-sm" onclick="selectAllChips('#copy-sinif-chips',false)">Temizle</button>
+      ${duzeyler.length > 1 ? `<select onchange="filterCopySinifChips(this.value)" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:11px;">
+        <option value="">Tüm Düzeyler</option>
+        ${duzeyFilterOpts}
+      </select>` : ''}
+      <button class="btn btn-secondary btn-sm" onclick="selectSameDuzeyChips('${source.duzey}')">
+        Sadece ${source.duzey}. Sınıflar
+      </button>
+    </div>
+    <div id="copy-sinif-chips" class="chip-group" style="margin-bottom:14px;">${hedefChips}</div>
+
+    <!-- Adım 3: Kopyalama modu -->
+    <div style="font-size:11px;font-weight:700;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px;">3. Aktarma Modu</div>
+    <div style="display:grid;gap:6px;margin-bottom:14px;">
+      <label style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:var(--bg3);border:2px solid var(--accent);border-radius:8px;cursor:pointer;">
+        <input type="radio" name="copy-mode" value="replace" checked style="margin-top:2px;flex-shrink:0;">
+        <div>
+          <div style="font-size:12px;font-weight:700;">🔄 Üzerine Yaz</div>
+          <div style="font-size:10px;color:var(--text2);">Hedef sınıfın mevcut dersleri silinir, seçilen dersler yazılır</div>
+        </div>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer;">
+        <input type="radio" name="copy-mode" value="merge" style="margin-top:2px;flex-shrink:0;">
+        <div>
+          <div style="font-size:12px;font-weight:700;">➕ Birleştir</div>
+          <div style="font-size:10px;color:var(--text2);">Hedef sınıfın mevcut dersleri korunur, seçilen dersler eklenir (tekrar edilmez)</div>
+        </div>
+      </label>
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
+      <button class="btn btn-primary" style="flex:2" onclick="doCopyDersler('${sourceSinifId}',this)">
+        ✅ Aktar
+      </button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+
+  // Radio buton görsel güncellemesi
+  modal.querySelectorAll('input[name="copy-mode"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      modal.querySelectorAll('label').forEach(l => {
+        const r = l.querySelector('input[type="radio"]');
+        if(r) l.style.borderColor = r.checked ? 'var(--accent)' : 'var(--border)';
+      });
+    });
+  });
+}
+
+// Üst butondan çağrıldığında önce kaynak sınıfı seçtir
+function openDersAktarimSecici() {
+  if(!appData.siniflar.length) { showToast('Önce sınıf ekleyin', 'error'); return; }
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:3000;display:flex;align-items:flex-end;';
   modal.dataset.dmodal = '1';
-  const chips = appData.siniflar.filter(s=>s.id!==sourceSinifId).map(s =>
-    `<div class="chip selected" data-id="${s.id}" onclick="this.classList.toggle('selected')">${s.ad}</div>`
-  ).join('');
-  modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;max-height:80vh;overflow-y:auto;">
-    <div style="font-size:14px;font-weight:700;margin-bottom:8px;">📋 Dersleri Kopyala — ${source.ad}</div>
-    <div style="font-size:11px;color:var(--text2);margin-bottom:10px;">${source.dersler.length} ders seçili sınıflara kopyalanacak</div>
-    <div style="display:flex;gap:6px;margin-bottom:8px;">
-      <button class="btn btn-secondary btn-sm" onclick="selectAllChips('#copy-chips', true)">Tümünü Seç</button>
-      <button class="btn btn-secondary btn-sm" onclick="selectAllChips('#copy-chips', false)">Temizle</button>
-    </div>
-    <div id="copy-chips" class="chip-group" style="margin-bottom:14px;">${chips}</div>
+
+  const sinifOpts = appData.siniflar
+    .filter(s => s.dersler?.length)
+    .map(s => `<option value="${s.id}">${s.ad} (${s.dersler?.length || 0} ders)</option>`)
+    .join('');
+
+  if(!sinifOpts) {
+    modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;">📋 Ders Aktar</div>
+      <div style="color:var(--text2);font-size:13px;padding:16px 0;">Hiçbir sınıfa ders eklenmemiş. Önce bir sınıfa ders ekleyin.</div>
+      <button class="btn btn-secondary btn-full" onclick="closeTopModal(this)">Kapat</button>
+    </div>`;
+    document.body.appendChild(modal);
+    return;
+  }
+
+  modal.innerHTML = `<div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;padding:16px;">
+    <div style="font-size:15px;font-weight:800;margin-bottom:4px;">📋 Ders Aktar</div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:14px;">Bir sınıfın derslerini başka sınıflara kopyala</div>
+    <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:6px;">Kaynak Sınıf (dersleri olan)</label>
+    <select id="aktarim-kaynak-sel" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:13px;margin-bottom:14px;">
+      <option value="">— Sınıf Seç —</option>
+      ${sinifOpts}
+    </select>
     <div style="display:flex;gap:8px;">
       <button class="btn btn-secondary" style="flex:1" onclick="closeTopModal(this)">İptal</button>
-      <button class="btn btn-primary" style="flex:1" onclick="doCopyDersler('${sourceSinifId}',this)">Kopyala</button>
+      <button class="btn btn-primary" style="flex:2" onclick="devamEtAktarim(this)">Devam →</button>
     </div>
   </div>`;
   document.body.appendChild(modal);
 }
 
+function devamEtAktarim(btn) {
+  const sel = document.getElementById('aktarim-kaynak-sel');
+  if(!sel?.value) { showToast('Kaynak sınıf seçin', 'error'); return; }
+  const sourceSinifId = sel.value;
+  closeTopModal(btn);
+  // Kısa gecikme ile ana modal aç
+  setTimeout(() => copyDerslerToAll(sourceSinifId), 100);
+}
+
+function filterCopySinifChips(duzey) {
+  document.querySelectorAll('#copy-sinif-chips .chip').forEach(c => {
+    c.style.display = (!duzey || c.dataset.duzey === duzey) ? '' : 'none';
+  });
+}
+
+function selectSameDuzeyChips(duzey) {
+  document.querySelectorAll('#copy-sinif-chips .chip').forEach(c => {
+    c.classList.toggle('selected', c.dataset.duzey === duzey);
+  });
+}
+
 function doCopyDersler(sourceSinifId, btn) {
   const modal = findParentModal(btn);
   const source = appData.siniflar.find(x => x.id === sourceSinifId);
-  const targets = [...document.querySelectorAll('#copy-chips .chip.selected')].map(c => c.dataset.id);
+
+  // Seçilen dersler
+  const secilenDersIds = [...document.querySelectorAll('#copy-ders-chips .chip.selected')].map(c => c.dataset.id);
+  if(!secilenDersIds.length) { showToast('Aktarılacak ders seçin', 'error'); return; }
+
+  // Hedef sınıflar
+  const targets = [...document.querySelectorAll('#copy-sinif-chips .chip.selected')].map(c => c.dataset.id);
   if(!targets.length) { showToast('Hedef sınıf seçin', 'error'); return; }
+
+  // Mod
+  const mode = document.querySelector('input[name="copy-mode"]:checked')?.value || 'replace';
+
   pushHistory();
+  let eklendi = 0, guncellendi = 0;
+
   targets.forEach(tid => {
     const s = appData.siniflar.find(x => x.id === tid);
-    if(s) s.dersler = [...source.dersler];
+    if(!s) return;
+    if(mode === 'replace') {
+      s.dersler = [...secilenDersIds];
+      guncellendi++;
+    } else {
+      // Birleştir — tekrar etme
+      if(!s.dersler) s.dersler = [];
+      secilenDersIds.forEach(did => {
+        if(!s.dersler.includes(did)) { s.dersler.push(did); eklendi++; }
+      });
+      guncellendi++;
+    }
   });
-  saveToStorage(); renderSiniflar(); modal.remove();
-  showToast(`✅ ${targets.length} sınıfa kopyalandı`, 'success');
+
+  saveToStorage();
+  renderSiniflar();
+  if(modal) modal.remove();
+
+  const dersAdlari = secilenDersIds.map(id => appData.dersler.find(x=>x.id===id)?.ad || id).join(', ');
+  if(mode === 'replace') {
+    showToast(`✅ ${targets.length} sınıfa ${secilenDersIds.length} ders aktarıldı`, 'success');
+  } else {
+    showToast(`✅ ${targets.length} sınıfa ${eklendi} ders eklendi (birleştirme)`, 'success');
+  }
 }
 
 function addBulkSinifBtn() { /* artık HTML'de tanımlı */ }
