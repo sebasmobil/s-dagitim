@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<title>S-Dağıtım v1.9</title>
+<title>S-Dağıtım v2.0</title>
 <style>
 /* ===== TEMA DEĞİŞKENLERİ ===== */
 :root {
@@ -445,7 +445,7 @@ textarea { resize: vertical; min-height: 60px; }
 <!-- ÜSTTE BAR -->
 <div id="top-bar">
   <div class="app-logo">📅 S-Dağıtım</div>
-  <div class="app-ver">v1.9</div>
+  <div class="app-ver">v2.0</div>
   <div id="save-indicator" style="font-size:10px;color:var(--success);display:none;align-items:center;gap:3px;">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><polyline points="20 6 9 17 4 12"/></svg>
     Kaydedildi
@@ -597,7 +597,8 @@ textarea { resize: vertical; min-height: 60px; }
         Yeni Ders
       </button>
       <button class="btn btn-secondary btn-sm" onclick="openImportModal('dersler')">📥 İçe Aktar</button>
-      <button class="btn btn-secondary btn-sm" onclick="exportData('dersler')">📤 Dışa Aktar</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportData('dersler')">📊 Excel</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportModulPDF('dersler')">📄 PDF</button>
       <button class="btn btn-warn btn-sm" onclick="openDersSinifTopluAtama()">⚡ Toplu Sınıf Ata</button>
     </div>
     <!-- İstatistik satırı -->
@@ -624,8 +625,9 @@ textarea { resize: vertical; min-height: 60px; }
           Yeni Sınıf
         </button>
         <button class="btn btn-warn btn-sm" onclick="openBulkSinifModal()">⚡ Toplu</button>
-        <button class="btn btn-secondary" onclick="openImportModal('siniflar')">İçe Aktar</button>
-        <button class="btn btn-secondary" onclick="exportData('siniflar')">Dışa Aktar</button>
+        <button class="btn btn-secondary" onclick="openImportModal('siniflar')">📥 İçe Aktar</button>
+        <button class="btn btn-secondary" onclick="exportData('siniflar')">📊 Excel</button>
+        <button class="btn btn-secondary" onclick="exportModulPDF('siniflar')">📄 PDF</button>
       </div>
       <div id="siniflar-list"></div>
     </div>
@@ -653,8 +655,10 @@ textarea { resize: vertical; min-height: 60px; }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Yeni Öğretmen
       </button>
-      <button class="btn btn-secondary" onclick="openImportModal('ogretmenler')">İçe Aktar</button>
-      <button class="btn btn-secondary" onclick="exportData('ogretmenler')">Dışa Aktar</button>
+      <button class="btn btn-secondary" onclick="openImportModal('ogretmenler')">📥 İçe Aktar</button>
+      <button class="btn btn-secondary" onclick="exportData('ogretmenler')">📊 Excel</button>
+      <button class="btn btn-secondary" onclick="exportModulPDF('ogretmenler')">📄 PDF</button>
+      <button class="btn btn-secondary" onclick="exportAllOgrElProgram()">📋 Toplu El Pr.</button>
     </div>
     <div id="ogretmenler-list"></div>
   </div>
@@ -1249,7 +1253,7 @@ textarea { resize: vertical; min-height: 60px; }
 // ===================================================================
 // VERİ YAPISI
 // ===================================================================
-const APP_VERSION = '1.9';
+const APP_VERSION = '2.0';
 let appData = {
   settings: {
     okulAdi: '', egitimYili: '2024-2025', mudurAdi: '', mudurUnvan: 'Okul Müdürü',
@@ -1274,10 +1278,14 @@ let importData = [];
 let importColumns = [];
 
 // ===================================================================
-// LOCALSTORAGE
+// UYGULAMA HAZIR BAYRAĞI — ilk yükleme sırasında storage'a yazılmasın
 // ===================================================================
+let _appReady = false;
 let _saveIndicatorTimer = null;
+
+
 function saveToStorage() {
+  if(!_appReady) return; // İlk yükleme tamamlanmadan kaydetme — veri kaybını önler
   try {
     localStorage.setItem('sdagitim_v1', JSON.stringify(appData));
     localStorage.setItem('sdagitim_ver', APP_VERSION);
@@ -4043,80 +4051,117 @@ function generateSinifElProgram(sinifId) {
   const settings = appData.settings;
   const bugun = new Date().toLocaleDateString('tr-TR');
 
-  // Öğretmen-ders listesi oluştur
-  const ogrList = {};
-  Object.values(dagitim).forEach(cell => {
-    if(!cell.dersId || !cell.ogretmenId) return;
-    const key = cell.ogretmenId;
-    if(!ogrList[key]) {
-      const o = appData.ogretmenler.find(x => x.id === key);
-      const d = appData.dersler.find(x => x.id === cell.dersId);
-      ogrList[key] = { ogr: o, ders: d, saat: 0 };
-    }
-    ogrList[key].saat++;
-  });
+  // Öğretmen-ders özet listesi
+  const ogrMap = {};
+  for(let s = 1; s <= maxSaat; s++) {
+    gunler.forEach(g => {
+      const cell = dagitim[`${g}-${s}`];
+      if(!cell?.dersId || !cell?.ogretmenId) return;
+      if(!ogrMap[cell.ogretmenId]) {
+        const o = appData.ogretmenler.find(x => x.id === cell.ogretmenId);
+        const d = appData.dersler.find(x => x.id === cell.dersId);
+        ogrMap[cell.ogretmenId] = { ad: o?.adSoyad||'', brans: o?.brans||'', ders: d?.ad||'', saat: 0 };
+      }
+      ogrMap[cell.ogretmenId].saat++;
+    });
+  }
 
+  // Program tablosu satırları
   let rows = '';
   for(let s = 1; s <= maxSaat; s++) {
-    rows += `<tr><td style="font-weight:700;padding:4px 6px;background:#f5f5f5;white-space:nowrap;">${s}.</td>`;
+    rows += `<tr><td class="saat-td">${s}.</td>`;
     gunler.forEach(g => {
       const cell = dagitim[`${g}-${s}`];
       if(cell?.dersId) {
         const d = appData.dersler.find(x => x.id === cell.dersId);
         const o = appData.ogretmenler.find(x => x.id === cell.ogretmenId);
-        rows += `<td style="text-align:center;padding:3px;font-size:9px;"><strong>${d?.ad||''}</strong><br><small style="color:#666;">${o?.adSoyad||''}</small></td>`;
+        rows += `<td class="prog-td"><b>${d?.ad||''}</b><br><span class="ogr-name">${o?.adSoyad||''}</span></td>`;
       } else {
-        rows += `<td></td>`;
+        rows += `<td class="prog-td"></td>`;
       }
     });
     rows += '</tr>';
   }
 
-  const ogrListHtml = Object.values(ogrList).map(item =>
-    `<tr><td style="padding:3px 6px;">${item.ogr?.adSoyad||''}</td><td style="padding:3px 6px;">${item.ders?.ad||''}</td><td style="padding:3px 6px;text-align:center;">${item.saat}</td></tr>`
+  const ogrListRows = Object.values(ogrMap).map(item =>
+    `<tr><td>${item.saat}</td><td>${item.ders}</td><td>${item.ad}</td><td>${item.brans}</td></tr>`
   ).join('');
 
-  const programHTML = `
-  <div class="half-page">
-    <h2 style="text-align:center;font-size:12px;margin:0 0 2px 0;">${settings.okulAdi || ''}</h2>
-    <p style="text-align:center;font-size:10px;margin:0 0 6px 0;">${settings.egitimYili || ''} — ${sinif.ad} Sınıfı</p>
-    <table style="border-collapse:collapse;width:100%;font-size:9px;">
-      <thead><tr><th style="background:#eee;padding:3px 5px;">Saat</th>
-      ${gunler.map(g=>`<th style="background:#eee;padding:3px 5px;">${g.substring(0,3)}</th>`).join('')}
+  const halfHTML = `
+  <div class="half">
+    <div class="title-block">
+      <div class="school">${settings.okulAdi || 'Okul Adı'}</div>
+      <div class="subtitle">${settings.egitimYili || ''} Eğitim Öğretim Yılı — ${sinif.ad} Sınıfı Ders Programı</div>
+    </div>
+    <table class="prog-table">
+      <thead><tr>
+        <th class="saat-th">Saat</th>
+        ${gunler.map(g=>`<th>${g.substring(0,3)}</th>`).join('')}
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p style="font-size:9px;margin:6px 0 2px 0;"><strong>Öğretmen ve Dersler:</strong></p>
-    <table style="border-collapse:collapse;width:100%;font-size:8px;">
-      <thead><tr>
-        <th style="background:#eee;padding:2px 4px;">Öğretmen</th>
-        <th style="background:#eee;padding:2px 4px;">Ders</th>
-        <th style="background:#eee;padding:2px 4px;">Saat</th>
-      </tr></thead>
-      <tbody>${ogrListHtml}</tbody>
+    <div class="ogr-list-title">Dersler ve Öğretmenler</div>
+    <table class="ogr-table">
+      <thead><tr><th>S.</th><th>Ders</th><th>Öğretmen</th><th>Branş</th></tr></thead>
+      <tbody>${ogrListRows}</tbody>
     </table>
-    <p style="font-size:8px;margin-top:8px;">Bu program ${bugun} tarihinde hazırlanmıştır.</p>
-    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:8px;">
-      <div>Sınıf Öğrencisi İmzası:</div>
-      <div>${settings.mudurAdi || ''}<br>${settings.mudurUnvan || ''}</div>
+    <div class="sign-block">
+      <div class="sign-info">Bu program ${bugun} tarihinde elden tarafıma teslim edilmiştir.</div>
+      <div class="sign-row">
+        <div class="sign-col">
+          <div class="sign-name">Sınıf Öğrencisi</div>
+          <div class="sign-line"></div>
+          <div class="sign-name">İmza</div>
+        </div>
+        <div class="sign-col right">
+          <div class="sign-name">${settings.mudurAdi || ''}</div>
+          <div class="sign-name">${settings.mudurUnvan || 'Okul Müdürü'}</div>
+          <div class="sign-line"></div>
+          <div class="sign-name">İmza</div>
+        </div>
+      </div>
     </div>
   </div>`;
 
   const win = window.open('', '_blank');
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  win.document.write(`<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8">
+  <title>${sinif.ad} El Programı</title>
   <style>
-    @page { size: A4 portrait; margin: 8mm; }
-    body { font-family: Arial, sans-serif; font-size: 10px; }
-    .half-page { height: 47%; border: 1px solid #ccc; padding: 8px; box-sizing: border-box; }
-    .divider { border-top: 2px dashed #999; margin: 4px 0; text-align: center; font-size: 8px; color: #999; }
-    table { border-collapse: collapse; }
-    th, td { border: 1px solid #ccc; }
+    @page { size: A4 portrait; margin: 8mm 10mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, 'Helvetica Neue', sans-serif; font-size: 9px; color: #111; }
+    .half { height: 48%; padding: 6px 8px; border: 1px solid #bbb; overflow: hidden; }
+    .cut-line { height: 4%; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #999; border-top: 1.5px dashed #bbb; border-bottom: 1.5px dashed #bbb; margin: 1px 0; }
+    .title-block { text-align: center; margin-bottom: 5px; }
+    .school { font-size: 11px; font-weight: 800; }
+    .subtitle { font-size: 8px; margin-top: 1px; color: #444; }
+    .prog-table { border-collapse: collapse; width: 100%; margin-bottom: 4px; }
+    .prog-table th { background: #e8eaf0; font-size: 8px; font-weight: 700; padding: 2px 4px; border: 1px solid #aaa; text-align: center; }
+    .saat-th { width: 22px; }
+    .saat-td { background: #f5f5f5; font-weight: 700; padding: 2px 3px; border: 1px solid #aaa; text-align: center; white-space: nowrap; }
+    .prog-td { border: 1px solid #aaa; padding: 2px 3px; text-align: center; font-size: 8px; }
+    .prog-td b { display: block; font-size: 8px; }
+    .ogr-name { font-size: 7px; color: #555; }
+    .ogr-list-title { font-size: 8px; font-weight: 700; margin: 4px 0 2px 0; }
+    .ogr-table { border-collapse: collapse; width: 100%; margin-bottom: 4px; }
+    .ogr-table th, .ogr-table td { border: 1px solid #aaa; padding: 2px 4px; font-size: 7.5px; }
+    .ogr-table th { background: #e8eaf0; font-weight: 700; }
+    .sign-block { margin-top: 6px; }
+    .sign-info { font-size: 7.5px; margin-bottom: 6px; }
+    .sign-row { display: flex; justify-content: space-between; }
+    .sign-col { font-size: 8px; }
+    .sign-col.right { text-align: right; }
+    .sign-line { border-bottom: 1px solid #555; width: 100px; margin: 12px 0 2px 0; }
+    .sign-col.right .sign-line { margin-left: auto; }
+    .sign-name { font-size: 7.5px; }
+    .no-print { display: block; }
+    @media print { .no-print { display: none !important; } }
   </style></head><body>
-  ${programHTML}
-  <div class="divider">✂ — kes — ✂</div>
-  ${programHTML}
-  <div style="margin-top:16px;text-align:center;" class="no-print">
-    <button onclick="window.print()" style="padding:8px 20px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;">🖨️ Yazdır</button>
+  ${halfHTML}
+  <div class="cut-line">✂ &nbsp;&nbsp; Kesiniz &nbsp;&nbsp; ✂</div>
+  ${halfHTML}
+  <div class="no-print" style="margin-top:12px;text-align:center;">
+    <button onclick="window.print()" style="padding:8px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">🖨️ Yazdır / PDF Kaydet</button>
   </div>
   </body></html>`);
   win.document.close();
@@ -4132,7 +4177,7 @@ function generateOgrElProgram(ogrId) {
 
   let rows = '';
   for(let s = 1; s <= maxSaat; s++) {
-    rows += `<tr><td style="font-weight:700;padding:4px;background:#f5f5f5;white-space:nowrap;">${s}.</td>`;
+    rows += `<tr><td class="saat-td">${s}.</td>`;
     gunler.forEach(g => {
       const key = `${g}-${s}`;
       let found = null;
@@ -4142,53 +4187,84 @@ function generateOgrElProgram(ogrId) {
       });
       if(found) {
         const d = appData.dersler.find(x => x.id === found.cell.dersId);
-        rows += `<td style="text-align:center;padding:3px;font-size:9px;"><strong>${found.sinif.ad}</strong><br><small>${d?.ad||''}</small></td>`;
+        rows += `<td class="prog-td"><b>${found.sinif.ad}</b><br><span class="ders-name">${d?.ad||''}</span></td>`;
       } else {
-        rows += `<td></td>`;
+        const isBlocked = (ogr.musaitlik || {})[key] === false || ogr.yasakGun?.includes(g);
+        rows += `<td class="prog-td"${isBlocked?' style="background:#f5f5f5;"':''}>${isBlocked?'—':''}</td>`;
       }
     });
     rows += '</tr>';
   }
 
-  const programHTML = `
-  <div class="half-page">
-    <h2 style="text-align:center;font-size:12px;margin:0 0 2px 0;">${settings.okulAdi || ''}</h2>
-    <p style="text-align:center;font-size:10px;margin:0 0 6px 0;">${settings.egitimYili || ''} — ${ogr.adSoyad} (${ogr.brans||''}) Ders Programı</p>
-    <table style="border-collapse:collapse;width:100%;font-size:9px;">
-      <thead><tr><th style="background:#eee;padding:3px 5px;">Saat</th>
-      ${gunler.map(g=>`<th style="background:#eee;padding:3px 5px;">${g.substring(0,3)}</th>`).join('')}
+  const halfHTML = `
+  <div class="half">
+    <div class="title-block">
+      <div class="school">${settings.okulAdi || 'Okul Adı'}</div>
+      <div class="subtitle">${settings.egitimYili || ''} Eğitim Öğretim Yılı — Öğretmen Ders Programı</div>
+      <div class="ogr-info">${ogr.adSoyad} &nbsp;|&nbsp; ${ogr.brans||''} &nbsp;|&nbsp; ${ogr.unvan||'Öğretmen'}</div>
+    </div>
+    <table class="prog-table">
+      <thead><tr>
+        <th class="saat-th">Saat</th>
+        ${gunler.map(g=>`<th>${g.substring(0,3)}</th>`).join('')}
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p style="font-size:9px;margin-top:10px;">Bu programı ${bugun} tarihinde elden aldım.</p>
-    <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:9px;">
-      <div>
-        <p style="margin:0;">${ogr.adSoyad}</p>
-        <p style="margin:0;">${ogr.unvan||'Öğretmen'}</p>
-        <p style="margin:20px 0 0 0;">İmza:</p>
-      </div>
-      <div style="text-align:right;">
-        <p style="margin:0;">${settings.mudurAdi||''}</p>
-        <p style="margin:0;">${settings.mudurUnvan||'Okul Müdürü'}</p>
-        <p style="margin:20px 0 0 0;">İmza:</p>
+    <div class="sign-block">
+      <div class="sign-info">Bu program ${bugun} tarihinde elden tarafıma teslim edilmiştir.</div>
+      <div class="sign-row">
+        <div class="sign-col">
+          <div class="sign-name">${ogr.adSoyad}</div>
+          <div class="sign-name">${ogr.unvan||'Öğretmen'}</div>
+          <div class="sign-line"></div>
+          <div class="sign-name">İmza</div>
+        </div>
+        <div class="sign-col right">
+          <div class="sign-name">${settings.mudurAdi || ''}</div>
+          <div class="sign-name">${settings.mudurUnvan || 'Okul Müdürü'}</div>
+          <div class="sign-line"></div>
+          <div class="sign-name">İmza</div>
+        </div>
       </div>
     </div>
   </div>`;
 
   const win = window.open('', '_blank');
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  win.document.write(`<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8">
+  <title>${ogr.adSoyad} El Programı</title>
   <style>
-    @page { size: A4 portrait; margin: 10mm; }
-    body { font-family: Arial, sans-serif; font-size: 10px; }
-    .half-page { height: 47%; border: 1px solid #ccc; padding: 10px; box-sizing: border-box; }
-    .divider { border-top: 2px dashed #999; margin: 4px 0; text-align: center; font-size: 8px; color: #999; }
-    th, td { border: 1px solid #ccc; }
+    @page { size: A4 portrait; margin: 8mm 10mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, 'Helvetica Neue', sans-serif; font-size: 9px; color: #111; }
+    .half { height: 48%; padding: 6px 8px; border: 1px solid #bbb; overflow: hidden; }
+    .cut-line { height: 4%; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #999; border-top: 1.5px dashed #bbb; border-bottom: 1.5px dashed #bbb; margin: 1px 0; }
+    .title-block { text-align: center; margin-bottom: 5px; }
+    .school { font-size: 11px; font-weight: 800; }
+    .subtitle { font-size: 8px; margin-top: 1px; color: #444; }
+    .ogr-info { font-size: 9px; font-weight: 700; margin-top: 3px; }
+    .prog-table { border-collapse: collapse; width: 100%; margin-bottom: 4px; }
+    .prog-table th { background: #e8eaf0; font-size: 8px; font-weight: 700; padding: 2px 4px; border: 1px solid #aaa; text-align: center; }
+    .saat-th { width: 22px; }
+    .saat-td { background: #f5f5f5; font-weight: 700; padding: 2px 3px; border: 1px solid #aaa; text-align: center; }
+    .prog-td { border: 1px solid #aaa; padding: 2px 3px; text-align: center; font-size: 8px; }
+    .prog-td b { display: block; font-size: 8.5px; color: #1a3a7a; }
+    .ders-name { font-size: 7px; color: #555; }
+    .sign-block { margin-top: 8px; }
+    .sign-info { font-size: 7.5px; margin-bottom: 8px; }
+    .sign-row { display: flex; justify-content: space-between; }
+    .sign-col { font-size: 8px; }
+    .sign-col.right { text-align: right; }
+    .sign-line { border-bottom: 1px solid #555; width: 110px; margin: 14px 0 2px 0; }
+    .sign-col.right .sign-line { margin-left: auto; }
+    .sign-name { font-size: 7.5px; }
+    .no-print { display: block; }
+    @media print { .no-print { display: none !important; } }
   </style></head><body>
-  ${programHTML}
-  <div class="divider">✂ — kes — ✂</div>
-  ${programHTML}
-  <div style="margin-top:16px;text-align:center;">
-    <button onclick="window.print()" style="padding:8px 20px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;">🖨️ Yazdır</button>
+  ${halfHTML}
+  <div class="cut-line">✂ &nbsp;&nbsp; Kesiniz &nbsp;&nbsp; ✂</div>
+  ${halfHTML}
+  <div class="no-print" style="margin-top:12px;text-align:center;">
+    <button onclick="window.print()" style="padding:8px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">🖨️ Yazdır / PDF Kaydet</button>
   </div>
   </body></html>`);
   win.document.close();
@@ -5062,24 +5138,25 @@ function exportDagitim(format) {
 
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Tema
-  const savedTheme = localStorage.getItem('sdagitim_theme');
-  if(savedTheme === 'light') { darkMode = false; document.documentElement.setAttribute('data-theme','light'); }
-
-  // Veri yükle
+  // 1. ÖNCE veriyi yükle (tema vs. herhangi bir saveToStorage çağrısından önce)
   loadFromStorage();
   pushHistory();
 
-  // UI güncelle
+  // 2. Temayı yükle (loadFromStorage'dan sonra — artık appData.settings mevcut)
+  loadTema();
+  cellSize = appData.settings.cellSize || localStorage.getItem('sdagitim_cellsize') || 'normal';
+  cellShow = appData.settings.cellShow || localStorage.getItem('sdagitim_cellshow') || 'kod-ogr';
+
+  // 3. UI güncelle
   updateStats();
   const okulEl = document.getElementById('okul-adi-display');
   if(okulEl) okulEl.textContent = appData.settings.okulAdi || 'Okul adı girilmedi';
   const yilEl = document.getElementById('egitim-yili-display');
   if(yilEl) yilEl.textContent = appData.settings.egitimYili || '—';
   const lastBackup = localStorage.getItem('sdagitim_last_backup');
-  if(lastBackup) document.getElementById('last-backup-time').textContent = lastBackup;
+  if(lastBackup) { const el = document.getElementById('last-backup-time'); if(el) el.textContent = lastBackup; }
 
-  // Drag & drop import
+  // 4. Drag & drop import
   const dropZone = document.getElementById('drop-zone');
   if(dropZone) {
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -5091,23 +5168,22 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Ders kodu auto input
+  // 5. Ders kodu auto input
   const kodEl = document.getElementById('d-kod');
   if(kodEl) kodEl.addEventListener('input', () => { kodEl.dataset.auto = 'false'; });
 
-  // Otomatik periyodik yedekleme (30 dakikada bir)
-  setInterval(() => {
-    autoBackup();
-  }, 30 * 60 * 1000);
+  // 6. Otomatik periyodik yedekleme (30 dakikada bir)
+  setInterval(() => { autoBackup(); }, 30 * 60 * 1000);
 
-  // Çıkış öncesi kaydet — güvenilir kayıt
-  window.addEventListener('beforeunload', (e) => {
-    saveToStorage();
-  });
+  // 7. UYGULAMA HAZIR — artık saveToStorage çalışabilir
+  _appReady = true;
 
-  // Başka sekmede değişiklik olursa senkronize et
+  // 8. Çıkış öncesi kaydet
+  window.addEventListener('beforeunload', () => { if(_appReady) saveToStorage(); });
+
+  // 9. Başka sekmede değişiklik olursa senkronize et
   window.addEventListener('storage', (e) => {
-    if(e.key === 'sdagitim_v1' && e.newValue) {
+    if(e.key === 'sdagitim_v1' && e.newValue && _appReady) {
       try {
         const parsed = JSON.parse(e.newValue);
         if(parsed.settings) appData.settings = { ...appData.settings, ...parsed.settings };
@@ -5839,20 +5915,20 @@ function setTema(temaAdi) {
   if(!tema) return;
   const root = document.documentElement.style;
   Object.entries(tema).forEach(([k, v]) => root.setProperty(k, v));
-  // Açık tema data-theme
   if(temaAdi === 'acik' || temaAdi === 'bej') {
     document.documentElement.setAttribute('data-theme', 'light');
   } else {
     document.documentElement.removeAttribute('data-theme');
   }
   localStorage.setItem('sdagitim_tema', temaAdi);
-  // Seçili chip'i işaretle
   document.querySelectorAll('.tema-chip').forEach(c => {
     c.style.border = c.dataset.tema === temaAdi ? '2px solid var(--accent)' : '2px solid transparent';
   });
   appData.settings.tema = temaAdi;
-  saveToStorage();
-  showToast(`🎨 ${temaAdi.charAt(0).toUpperCase() + temaAdi.slice(1)} teması uygulandı`);
+  if(_appReady) { // Sadece uygulama hazır olduktan sonra kaydet
+    saveToStorage();
+    showToast(`🎨 ${temaAdi.charAt(0).toUpperCase() + temaAdi.slice(1)} teması uygulandı`);
+  }
 }
 
 function loadTema() {
@@ -5908,17 +5984,179 @@ function getDerslikOptionsForDers(dersId) {
 }
 
 // ===================================================================
-// DAĞITIM TABLOSU CELL BOYUTUNU UYGULA
+// DAĞITIM TABLOSU CELL BOYUTU — loadTema artık ana DOMContentLoaded içinde
 // ===================================================================
-document.addEventListener('DOMContentLoaded', () => {
-  loadTema();
-  cellSize = appData.settings.cellSize || localStorage.getItem('sdagitim_cellsize') || 'normal';
-  cellShow = appData.settings.cellShow || localStorage.getItem('sdagitim_cellshow') || 'kod-ogr';
-});
+
 
 // ===================================================================
-// KAPSAMLI ÖZET RAPOR — Tüm veriler tek XLSX'te
+// MODÜL PDF DIŞA AKTARIM (Dersler / Sınıflar / Öğretmenler listesi)
 // ===================================================================
+function exportModulPDF(module) {
+  const settings = appData.settings;
+  let title = '', headers = [], rows = [];
+
+  if(module === 'dersler') {
+    title = 'Dersler Listesi';
+    headers = ['Ders Adı', 'Kodu', 'Saat/Hafta', 'Blok', 'İlk Saat', 'Sınıf Sayısı', 'Öğretmen'];
+    rows = appData.dersler.map(d => {
+      const sinifSayisi = appData.siniflar.filter(s => s.dersler?.includes(d.id)).length;
+      const ogretmen = appData.ogretmenler.filter(o => o.atananDersler?.some(ad => ad.dersId === d.id)).map(o => o.adSoyad).join(', ');
+      const saatBilgi = d.sinifSaatler?.length
+        ? d.sinifSaatler.map(s => `${s.duzey||'Tüm'}: ${s.saat}st`).join(' | ')
+        : (d.haftalikSaat || '—') + ' saat';
+      return [d.ad, d.kod||'', saatBilgi, d.blok||'—', d.ilkSaat||'—', sinifSayisi, ogretmen||'—'];
+    });
+  } else if(module === 'siniflar') {
+    title = 'Sınıflar Listesi';
+    headers = ['Sınıf', 'Düzey', 'Şube', 'Gün/Saat', 'Grup', 'Ders Sayısı', 'Toplam Saat'];
+    rows = appData.siniflar.map(s => {
+      const hafSaat = (s.gunSaat||8) * appData.settings.gunler.length;
+      return [s.ad, s.duzey, s.sube, s.gunSaat||8, s.grup||'tam', s.dersler?.length||0, hafSaat];
+    });
+  } else if(module === 'ogretmenler') {
+    title = 'Öğretmenler Listesi';
+    headers = ['Ad Soyad', 'Branş', 'Ünvan', 'Haftalık Saat', 'Atanan Ders', 'Sınıf Sayısı'];
+    rows = appData.ogretmenler.map(o => {
+      let toplamSaat = 0;
+      appData.siniflar.forEach(sinif => {
+        Object.values(appData.dagitim[sinif.id]||{}).forEach(cell => {
+          if(cell.ogretmenId===o.id || cell.ogretmenId2===o.id) toplamSaat++;
+        });
+      });
+      const sinifSayisi = new Set(o.atananDersler?.flatMap(ad => ad.siniflar||[])||[]).size;
+      return [o.adSoyad, o.brans||'—', o.unvan||'Öğretmen', toplamSaat, o.atananDersler?.length||0, sinifSayisi];
+    });
+  }
+
+  const thHTML = headers.map(h => `<th>${h}</th>`).join('');
+  const tdHTML = rows.map(row =>
+    `<tr>${row.map(c => `<td>${c??''}</td>`).join('')}</tr>`
+  ).join('');
+
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8">
+  <title>${title}</title>
+  <style>
+    @page { size: A4 landscape; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; font-size: 9px; color: #111; }
+    h1 { font-size: 13px; text-align: center; margin-bottom: 2px; }
+    h2 { font-size: 10px; text-align: center; color: #555; margin-bottom: 10px; font-weight: normal; }
+    table { border-collapse: collapse; width: 100%; }
+    th { background: #1e2336; color: #fff; padding: 4px 6px; text-align: left; font-size: 8px; }
+    td { padding: 3px 6px; border-bottom: 1px solid #ddd; font-size: 8px; }
+    tr:nth-child(even) { background: #f5f7ff; }
+    .footer { margin-top: 12px; display: flex; justify-content: space-between; font-size: 8px; color: #666; }
+    .no-print { display: block; }
+    @media print { .no-print { display: none !important; } }
+  </style></head><body>
+  <h1>${settings.okulAdi || 'Okul Adı'}</h1>
+  <h2>${settings.egitimYili || ''} — ${title}</h2>
+  <table><thead><tr>${thHTML}</tr></thead><tbody>${tdHTML}</tbody></table>
+  <div class="footer">
+    <span>Toplam: ${rows.length} kayıt</span>
+    <span>${settings.mudurAdi || ''} — ${settings.mudurUnvan || 'Okul Müdürü'}</span>
+  </div>
+  <div class="no-print" style="margin-top:14px;text-align:center;">
+    <button onclick="window.print()" style="padding:8px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">🖨️ Yazdır / PDF Kaydet</button>
+  </div>
+  </body></html>`);
+  win.document.close();
+}
+
+// Tüm öğretmenler için toplu el programı (hepsi ayrı sayfa)
+function exportAllOgrElProgram() {
+  if(!appData.ogretmenler.length) { showToast('Öğretmen bulunamadı', 'error'); return; }
+  const gunler = appData.settings.gunler;
+  const maxSaat = appData.settings.maxSaat;
+  const settings = appData.settings;
+  const bugun = new Date().toLocaleDateString('tr-TR');
+
+  let allPages = '';
+  appData.ogretmenler.forEach((ogr, idx) => {
+    let rows = '';
+    for(let s = 1; s <= maxSaat; s++) {
+      rows += `<tr><td class="saat-td">${s}.</td>`;
+      gunler.forEach(g => {
+        const key = `${g}-${s}`;
+        let found = null;
+        appData.siniflar.forEach(sinif => {
+          const cell = (appData.dagitim[sinif.id]||{})[key];
+          if(cell && (cell.ogretmenId===ogr.id || cell.ogretmenId2===ogr.id)) found = {sinif, cell};
+        });
+        if(found) {
+          const d = appData.dersler.find(x => x.id===found.cell.dersId);
+          rows += `<td class="prog-td"><b>${found.sinif.ad}</b><br><span class="ders-name">${d?.ad||''}</span></td>`;
+        } else rows += `<td class="prog-td"></td>`;
+      });
+      rows += '</tr>';
+    }
+
+    const halfHTML = `<div class="half">
+      <div class="title-block">
+        <div class="school">${settings.okulAdi||'Okul Adı'}</div>
+        <div class="subtitle">${settings.egitimYili||''} Eğitim Öğretim Yılı — Öğretmen Ders Programı</div>
+        <div class="ogr-info">${ogr.adSoyad} | ${ogr.brans||''} | ${ogr.unvan||'Öğretmen'}</div>
+      </div>
+      <table class="prog-table">
+        <thead><tr><th class="saat-th">Saat</th>${gunler.map(g=>`<th>${g.substring(0,3)}</th>`).join('')}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="sign-block">
+        <div class="sign-info">Bu program ${bugun} tarihinde elden tarafıma teslim edilmiştir.</div>
+        <div class="sign-row">
+          <div class="sign-col"><div class="sign-name">${ogr.adSoyad}</div><div class="sign-name">${ogr.unvan||'Öğretmen'}</div><div class="sign-line"></div><div class="sign-name">İmza</div></div>
+          <div class="sign-col right"><div class="sign-name">${settings.mudurAdi||''}</div><div class="sign-name">${settings.mudurUnvan||'Okul Müdürü'}</div><div class="sign-line"></div><div class="sign-name">İmza</div></div>
+        </div>
+      </div>
+    </div>`;
+
+    allPages += `<div class="page-wrap${idx>0?' page-break':''}">${halfHTML}<div class="cut-line">✂ &nbsp; Kesiniz &nbsp; ✂</div>${halfHTML}</div>`;
+  });
+
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8">
+  <title>Tüm Öğretmen El Programları</title>
+  <style>
+    @page { size: A4 portrait; margin: 8mm 10mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 9px; color: #111; }
+    .page-wrap { page-break-after: always; }
+    .page-wrap:last-child { page-break-after: avoid; }
+    .page-break { page-break-before: always; }
+    .half { height: 48%; padding: 6px 8px; border: 1px solid #bbb; overflow: hidden; }
+    .cut-line { height: 4%; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #999; border-top: 1.5px dashed #bbb; border-bottom: 1.5px dashed #bbb; margin: 1px 0; }
+    .title-block { text-align: center; margin-bottom: 4px; }
+    .school { font-size: 11px; font-weight: 800; }
+    .subtitle { font-size: 8px; color: #444; margin-top: 1px; }
+    .ogr-info { font-size: 9px; font-weight: 700; margin-top: 3px; }
+    .prog-table { border-collapse: collapse; width: 100%; margin-bottom: 4px; }
+    .prog-table th { background: #e8eaf0; font-size: 8px; font-weight: 700; padding: 2px 3px; border: 1px solid #aaa; text-align: center; }
+    .saat-th { width: 20px; }
+    .saat-td { background: #f5f5f5; font-weight: 700; padding: 2px; border: 1px solid #aaa; text-align: center; }
+    .prog-td { border: 1px solid #aaa; padding: 2px; text-align: center; font-size: 8px; }
+    .prog-td b { font-size: 8px; color: #1a3a7a; }
+    .ders-name { font-size: 7px; color: #555; }
+    .sign-block { margin-top: 6px; }
+    .sign-info { font-size: 7px; margin-bottom: 6px; }
+    .sign-row { display: flex; justify-content: space-between; }
+    .sign-col { font-size: 7.5px; }
+    .sign-col.right { text-align: right; }
+    .sign-line { border-bottom: 1px solid #555; width: 100px; margin: 12px 0 2px 0; }
+    .sign-col.right .sign-line { margin-left: auto; }
+    .sign-name { font-size: 7px; }
+    .no-print { display: block; }
+    @media print { .no-print { display: none !important; } }
+  </style></head><body>
+  ${allPages}
+  <div class="no-print" style="margin-top:14px;text-align:center;">
+    <button onclick="window.print()" style="padding:8px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">🖨️ Yazdır / PDF Kaydet (${appData.ogretmenler.length} öğretmen)</button>
+  </div>
+  </body></html>`);
+  win.document.close();
+}
+
+
 function exportOzetRapor() {
   if(typeof XLSX === 'undefined') { showToast('XLSX kütüphanesi yüklenemedi', 'error'); return; }
   const wb = XLSX.utils.book_new();
