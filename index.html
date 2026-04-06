@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<title>S-Dağıtım v2.4</title>
+<title>S-Dağıtım v2.5</title>
 <style>
 /* ===== TEMA DEĞİŞKENLERİ ===== */
 :root {
@@ -445,7 +445,7 @@ textarea { resize: vertical; min-height: 60px; }
 <!-- ÜSTTE BAR -->
 <div id="top-bar">
   <div class="app-logo">📅 S-Dağıtım</div>
-  <div class="app-ver">v2.4</div>
+  <div class="app-ver">v2.5</div>
   <div id="save-indicator" style="font-size:10px;color:var(--success);display:none;align-items:center;gap:3px;">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><polyline points="20 6 9 17 4 12"/></svg>
     Kaydedildi
@@ -1278,7 +1278,7 @@ textarea { resize: vertical; min-height: 60px; }
 // ===================================================================
 // VERİ YAPISI
 // ===================================================================
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.5';
 let appData = {
   settings: {
     okulAdi: '', egitimYili: '2024-2025', mudurAdi: '', mudurUnvan: 'Okul Müdürü',
@@ -3426,11 +3426,10 @@ function runDistributionAlgorithm() {
   const gunler = appData.settings.gunler;
   const warnings = [];
   let totalPlaced = 0, totalFailed = 0;
+  const MAX_GLOBAL_PASSES = 20; // Maksimum genel deneme sayısı
 
-  // ogretmenOccupied: hangi saat hangi öğretmen dolu
-  const ogretmenOccupied = {};
-
-  // Önce kilitli hücreleri kaydet
+  // === AŞAMA 1: Kilitli hücreleri koru ===
+  const ogretmenOccupied = {}; // 'ogrId-Gun-Saat' → sinifId
   appData.siniflar.forEach(sinif => {
     Object.entries(appData.dagitim[sinif.id] || {}).forEach(([key, cell]) => {
       if(cell.kilitli && cell.ogretmenId) {
@@ -3443,47 +3442,38 @@ function runDistributionAlgorithm() {
   // Kilitsizleri temizle
   appData.siniflar.forEach(sinif => {
     if(!appData.dagitim[sinif.id]) appData.dagitim[sinif.id] = {};
-    const lockedCells = {};
-    Object.entries(appData.dagitim[sinif.id]).forEach(([key, cell]) => {
-      if(cell.kilitli) lockedCells[key] = cell;
-    });
-    appData.dagitim[sinif.id] = lockedCells;
+    const locked = {};
+    Object.entries(appData.dagitim[sinif.id]).forEach(([k, v]) => { if(v.kilitli) locked[k] = v; });
+    appData.dagitim[sinif.id] = locked;
   });
 
-  // Dağıtım öncelik sırası: en kısıtlı sınıf/öğretmen önce
-  const dagitimSirasi = [...appData.siniflar].sort((a, b) => {
-    const score = s => {
-      let hard = 0;
+  // === AŞAMA 2: Yerleştirilecek görev listesi hazırla ===
+  const allTasks = []; // { sinif, dersId, ders, blokSize, ogretmen, ogretmen2, ilkSaatMax, hSaat }
+
+  // Sınıfları öncelikle işle: en kısıtlı sınıf/öğretmen önce
+  const sinifSirasi = [...appData.siniflar].sort((a, b) => {
+    const kisitPuani = s => {
+      let puan = 0;
       (s.dersler || []).forEach(did => {
         const d = appData.dersler.find(x => x.id === did);
-        if(d?.ilkSaat > 0) hard += 3;
-        if(d?.blok && d.blok.includes('+')) hard += 2;
-        // Öğretmenin kısıtları
+        if(d?.ilkSaat > 0) puan += 4;
+        if(d?.blok?.includes('+')) puan += 2;
         const ogr = appData.ogretmenler.find(o =>
           o.atananDersler?.some(ad => ad.dersId === did && ad.siniflar?.includes(s.id))
         );
-        if(ogr?.yasakGun?.length) hard += ogr.yasakGun.length;
-        if(ogr?.musaitlik) hard += Object.values(ogr.musaitlik).filter(v=>v===false).length / 5;
+        if(ogr) {
+          puan += (ogr.yasakGun?.length || 0) * 2;
+          puan += Object.values(ogr.musaitlik || {}).filter(v => v === false).length / 4;
+          if(ogr.maxGun) puan += 3;
+        }
       });
-      return hard;
+      return puan;
     };
-    return score(b) - score(a);
+    return kisitPuani(b) - kisitPuani(a);
   });
 
-  dagitimSirasi.forEach(sinif => {
-    if(!(sinif.dersler?.length)) return;
+  sinifSirasi.forEach(sinif => {
     const maxSaat = sinif.gunSaat || appData.settings.maxSaat;
-    const dagitim = appData.dagitim[sinif.id];
-
-    // Kilitli hücrelerin meşguliyeti
-    const occupied = {};
-    Object.keys(dagitim).forEach(k => { occupied[k] = true; });
-
-    // Bu sınıfın müsaitlik tablosu
-    const sinifMusaitlik = sinif.musaitlik || {};
-
-    // Yerleştirilecek liste
-    const toPlace = [];
     (sinif.dersler || []).forEach(dersId => {
       const ders = appData.dersler.find(x => x.id === dersId);
       if(!ders) return;
@@ -3495,7 +3485,7 @@ function runDistributionAlgorithm() {
         o.atananDersler?.some(ad => ad.dersId === dersId && ad.siniflar?.includes(sinif.id))
       );
       if(!ogretmenler.length) {
-        warnings.push(`⚠️ <b>${sinif.ad}</b> - ${ders.ad}: Öğretmen atanmamış, atlanıyor.`);
+        warnings.push(`⚠️ <b>${sinif.ad}</b> — ${ders.ad}: Öğretmen atanmamış, atlanıyor.`);
         totalFailed += hSaat;
         return;
       }
@@ -3503,9 +3493,8 @@ function runDistributionAlgorithm() {
       let bloklar;
       if(blokStr) {
         bloklar = blokStr.split('+').map(s => parseInt(s.trim())).filter(n => n > 0);
-        const toplamBlok = bloklar.reduce((a,b)=>a+b,0);
+        const toplamBlok = bloklar.reduce((a, b) => a + b, 0);
         if(toplamBlok !== hSaat) {
-          warnings.push(`⚠️ <b>${sinif.ad}</b> - ${ders.ad}: Blok toplamı (${toplamBlok}) ≠ ${hSaat}. Otomatik düzeltiliyor.`);
           bloklar = distributeEvenly(hSaat);
         }
       } else {
@@ -3513,186 +3502,225 @@ function runDistributionAlgorithm() {
       }
 
       bloklar.forEach(blok => {
-        toPlace.push({
-          dersId, hSaat, blokSize: blok, ders,
+        allTasks.push({
+          sinif, dersId, ders, blokSize: blok, hSaat,
           ogretmen: ogretmenler[0],
           ogretmen2: ogretmenler[1] || null,
-          ilkSaatMax: parseInt(ders.ilkSaat) || maxSaat
+          ilkSaatMax: parseInt(ders.ilkSaat) || (sinif.gunSaat || appData.settings.maxSaat),
+          placed: false
         });
       });
     });
+  });
 
-    // Büyük bloklar önce, ilk saat kısıtlılar önce
-    toPlace.sort((a, b) => {
-      if(b.blokSize !== a.blokSize) return b.blokSize - a.blokSize;
-      const aKisitli = a.ilkSaatMax < a.hSaat ? 1 : 0;
-      const bKisitli = b.ilkSaatMax < b.hSaat ? 1 : 0;
-      return bKisitli - aKisitli;
+  // === AŞAMA 3: ÇOK TURLU DENEME SİSTEMİ ===
+  // Her tur: sıralamayı değiştir ve yeniden dene
+  const occupied = {}; // sinifId → { key: true }
+  appData.siniflar.forEach(sinif => {
+    occupied[sinif.id] = {};
+    Object.keys(appData.dagitim[sinif.id] || {}).forEach(k => { occupied[sinif.id][k] = true; });
+  });
+
+  // Yerleştirme fonksiyonu (tek görev için)
+  function tryPlaceTask(task, extraShuffles = 0) {
+    const { sinif, dersId, ders, blokSize, ogretmen, ogretmen2, ilkSaatMax } = task;
+    const maxSaat = sinif.gunSaat || appData.settings.maxSaat;
+    const dagitim = appData.dagitim[sinif.id];
+    const sinifMusaitlik = sinif.musaitlik || {};
+
+    // Gün-ders sayacı (aynı günde aynı ders az olsun)
+    const gunDersSayisi = {};
+    Object.entries(dagitim).forEach(([key, cell]) => {
+      if(cell.dersId) {
+        const g = key.split('-')[0];
+        if(!gunDersSayisi[g]) gunDersSayisi[g] = {};
+        gunDersSayisi[g][cell.dersId] = (gunDersSayisi[g][cell.dersId] || 0) + 1;
+      }
     });
 
-    toPlace.forEach(item => {
-      const { dersId, blokSize, ders, ogretmen, ogretmen2, ilkSaatMax } = item;
-      let placed = false;
+    let gunSirasi = [...gunler];
+    // Aynı günde aynı ders az olan günleri öne al
+    gunSirasi.sort((a, b) => (gunDersSayisi[a]?.[dersId] || 0) - (gunDersSayisi[b]?.[dersId] || 0));
+    if(extraShuffles > 0) gunSirasi = shuffleArray(gunSirasi);
 
-      // Aynı günde aynı ders sayısını takip et
-      const gunDersSayisi = {}; // gun -> {dersId: count}
+    for(const gun of gunSirasi) {
+      if(ogretmen.yasakGun?.includes(gun)) continue;
 
-      // Mevcut dağıtımdan gün-ders sayısını doldur
-      Object.entries(dagitim).forEach(([key, cell]) => {
-        if(cell.dersId) {
-          const gun = key.split('-')[0];
-          if(!gunDersSayisi[gun]) gunDersSayisi[gun] = {};
-          gunDersSayisi[gun][cell.dersId] = (gunDersSayisi[gun][cell.dersId] || 0) + 1;
+      // Max gün kısıtı
+      if(ogretmen.maxGun) {
+        const ogrGunler = new Set();
+        Object.entries(dagitim).forEach(([k, v]) => {
+          if(v.ogretmenId === ogretmen.id) ogrGunler.add(k.split('-')[0]);
+        });
+        Object.keys(ogretmenOccupied).filter(k => k.startsWith(ogretmen.id + '-')).forEach(k => {
+          ogrGunler.add(k.split('-').slice(1, -1).join('-'));
+        });
+        if(ogrGunler.size >= ogretmen.maxGun && !ogrGunler.has(gun)) continue;
+      }
+
+      // Günlük max ders saati
+      if(ogretmen.maxGunlukSaat) {
+        let gunlukSaat = 0;
+        for(let s = 1; s <= maxSaat; s++) {
+          const k = `${gun}-${s}`;
+          if(dagitim[k]?.ogretmenId === ogretmen.id || ogretmenOccupied[`${ogretmen.id}-${k}`]) gunlukSaat++;
+        }
+        if(gunlukSaat + blokSize > ogretmen.maxGunlukSaat) continue;
+      }
+
+      const startMin = parseInt(ogretmen.ilkSaatMin) || 1;
+      for(let startSaat = startMin; startSaat <= maxSaat - blokSize + 1; startSaat++) {
+        if(startSaat + blokSize - 1 > ilkSaatMax) break;
+
+        let canPlace = true;
+        const keys = [];
+        for(let b = 0; b < blokSize; b++) {
+          const saat = startSaat + b;
+          const key = `${gun}-${saat}`;
+          keys.push(key);
+          if(occupied[sinif.id][key]) { canPlace = false; break; }
+          if(sinifMusaitlik[key] === false) { canPlace = false; break; }
+          if(ogretmenOccupied[`${ogretmen.id}-${key}`]) { canPlace = false; break; }
+          if(ogretmen2 && ogretmenOccupied[`${ogretmen2.id}-${key}`]) { canPlace = false; break; }
+          if((ogretmen.musaitlik || {})[key] === false) { canPlace = false; break; }
+        }
+
+        // Boşluk kısıtı
+        if(canPlace && ogretmen.maxBosluk !== null && ogretmen.maxBosluk !== undefined && ogretmen.maxBosluk !== '') {
+          const gunDersleri = [];
+          for(let s = 1; s <= maxSaat; s++) {
+            const k = `${gun}-${s}`;
+            if(dagitim[k]?.ogretmenId === ogretmen.id || ogretmenOccupied[`${ogretmen.id}-${k}`]) gunDersleri.push(s);
+          }
+          keys.forEach(k => gunDersleri.push(parseInt(k.split('-')[1])));
+          gunDersleri.sort((a, b) => a - b);
+          if(gunDersleri.length > 1) {
+            const maxB = Math.max(...gunDersleri.map((s, i) => i > 0 ? s - gunDersleri[i-1] - 1 : 0));
+            if(maxB > parseInt(ogretmen.maxBosluk)) canPlace = false;
+          }
+        }
+
+        if(canPlace) {
+          keys.forEach(key => {
+            dagitim[key] = { dersId, ogretmenId: ogretmen.id, ogretmenId2: ogretmen2?.id || null, manuel: false, kilitli: false };
+            occupied[sinif.id][key] = true;
+            ogretmenOccupied[`${ogretmen.id}-${key}`] = sinif.id;
+            if(ogretmen2) ogretmenOccupied[`${ogretmen2.id}-${key}`] = sinif.id;
+          });
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // === ÇOK TURLU DENEME ===
+  let unplacedTasks = allTasks.filter(t => !t.placed);
+
+  for(let pass = 0; pass < MAX_GLOBAL_PASSES && unplacedTasks.length > 0; pass++) {
+    const prevUnplaced = unplacedTasks.length;
+
+    // Her turda büyük bloklar önce, kısıtlı görevler önce
+    const sortedTasks = [...unplacedTasks].sort((a, b) => {
+      if(b.blokSize !== a.blokSize) return b.blokSize - a.blokSize;
+      const aK = a.ilkSaatMax < a.hSaat ? 1 : 0;
+      const bK = b.ilkSaatMax < b.hSaat ? 1 : 0;
+      return bK - aK;
+    });
+
+    sortedTasks.forEach(task => {
+      if(task.placed) return;
+      const ok = tryPlaceTask(task, pass);
+      if(ok) {
+        task.placed = true;
+        totalPlaced += task.blokSize;
+      }
+    });
+
+    unplacedTasks = allTasks.filter(t => !t.placed);
+
+    // İlerleme yoksa durmayı düşün (son 3 turda değişim yoksa)
+    if(pass >= 5 && unplacedTasks.length === prevUnplaced) {
+      // Kısıtları gevşeterek son turlar
+      if(pass < MAX_GLOBAL_PASSES - 3) continue;
+
+      // Son çare: kısıt esneme — boşluk kısıtını görmezden gel
+      sortedTasks.forEach(task => {
+        if(task.placed) return;
+        // Boşluk kısıtını geçici kaldır
+        const origBosluk = task.ogretmen.maxBosluk;
+        task.ogretmen.maxBosluk = null;
+        const ok = tryPlaceTask(task, pass + 10);
+        task.ogretmen.maxBosluk = origBosluk;
+        if(ok) {
+          task.placed = true;
+          totalPlaced += task.blokSize;
+          warnings.push(`ℹ️ <b>${task.sinif.ad}</b> — ${task.ders.ad}: Boşluk kısıtı esneterek yerleştirildi.`);
         }
       });
+      unplacedTasks = allTasks.filter(t => !t.placed);
+    }
+  }
 
-      for(let attempt = 0; attempt < 5 && !placed; attempt++) {
-        // İlk deneme sıralı, sonrakiler karıştırılmış
-        let gunSirasi = attempt === 0 ? [...gunler] : shuffleArray([...gunler]);
+  // === AŞAMA 4: Hâlâ yerleşmeyen blokları parçala ===
+  unplacedTasks.forEach(task => {
+    const { sinif, dersId, ders, blokSize, ogretmen, ogretmen2, ilkSaatMax } = task;
+    const maxSaat = sinif.gunSaat || appData.settings.maxSaat;
+    const dagitim = appData.dagitim[sinif.id];
+    const sinifMusaitlik = sinif.musaitlik || {};
 
-        // Aynı günde bu ders zaten varsa o günü sona at (çeşitlilik için)
-        if(attempt < 2) {
-          gunSirasi.sort((a, b) => {
-            const aCount = gunDersSayisi[a]?.[dersId] || 0;
-            const bCount = gunDersSayisi[b]?.[dersId] || 0;
-            return aCount - bCount; // Az olan gün önce
-          });
-        }
-
-        for(const gun of gunSirasi) {
-          // Öğretmen yasak gün
+    if(blokSize > 1) {
+      // Tek tek yerleştir
+      let subPlaced = 0;
+      for(let sub = 0; sub < blokSize; sub++) {
+        let subOk = false;
+        const shuffledG = shuffleArray([...gunler]);
+        for(const gun of shuffledG) {
           if(ogretmen.yasakGun?.includes(gun)) continue;
-
-          // Max gün kısıtı
-          if(ogretmen.maxGun) {
-            const ogrGunler = new Set();
-            Object.entries(dagitim).forEach(([k, v]) => {
-              if(v.ogretmenId === ogretmen.id && v.dersId) ogrGunler.add(k.split('-')[0]);
-            });
-            Object.keys(ogretmenOccupied).filter(k => k.startsWith(ogretmen.id+'-')).forEach(k => {
-              ogrGunler.add(k.split('-')[1]);
-            });
-            if(ogrGunler.size >= ogretmen.maxGun && !ogrGunler.has(gun)) continue;
-          }
-
-          // Günlük max ders saati
-          if(ogretmen.maxGunlukSaat) {
-            let gunlukSaat = 0;
-            for(let s = 1; s <= maxSaat; s++) {
-              const k = `${gun}-${s}`;
-              if(dagitim[k]?.ogretmenId === ogretmen.id || ogretmenOccupied[`${ogretmen.id}-${k}`]) gunlukSaat++;
-            }
-            if(gunlukSaat + blokSize > ogretmen.maxGunlukSaat) continue;
-          }
-
-          // Ardışık saat ara
-          const startMin = parseInt(ogretmen.ilkSaatMin) || 1;
-          for(let startSaat = startMin; startSaat <= maxSaat - blokSize + 1; startSaat++) {
-            // İlk saat kısıtı
-            if(startSaat + blokSize - 1 > ilkSaatMax) break;
-
-            let canPlace = true;
-            const keys = [];
-
-            for(let b = 0; b < blokSize; b++) {
-              const saat = startSaat + b;
-              const key = `${gun}-${saat}`;
-              keys.push(key);
-
-              // Sınıf dolu mu?
-              if(occupied[key]) { canPlace = false; break; }
-              // Sınıf müsaitlik tablosunda kapalı mı?
-              if(sinifMusaitlik[key] === false) { canPlace = false; break; }
-              // Öğretmen o saatte meşgul mu?
-              if(ogretmenOccupied[`${ogretmen.id}-${key}`]) { canPlace = false; break; }
-              if(ogretmen2 && ogretmenOccupied[`${ogretmen2.id}-${key}`]) { canPlace = false; break; }
-              // Öğretmen müsaitlik
-              if((ogretmen.musaitlik || {})[key] === false) { canPlace = false; break; }
-            }
-
-            if(canPlace && (ogretmen.maxBosluk !== null && ogretmen.maxBosluk !== undefined && ogretmen.maxBosluk !== '')) {
-              // Boşluk kısıtı kontrolü
-              const gunDersleri = [];
-              for(let s = 1; s <= maxSaat; s++) {
-                const k = `${gun}-${s}`;
-                if(dagitim[k]?.ogretmenId === ogretmen.id || ogretmenOccupied[`${ogretmen.id}-${k}`]) {
-                  gunDersleri.push(s);
-                }
-              }
-              keys.forEach(k => gunDersleri.push(parseInt(k.split('-')[1])));
-              gunDersleri.sort((a,b) => a-b);
-              if(gunDersleri.length > 1) {
-                const maxBosluk = Math.max(...gunDersleri.map((s,i) => i > 0 ? s - gunDersleri[i-1] - 1 : 0));
-                if(maxBosluk > parseInt(ogretmen.maxBosluk)) canPlace = false;
-              }
-            }
-
-            if(canPlace) {
-              keys.forEach(key => {
-                dagitim[key] = {
-                  dersId, ogretmenId: ogretmen.id,
-                  ogretmenId2: ogretmen2?.id || null,
-                  manuel: false, kilitli: false
-                };
-                occupied[key] = true;
-                ogretmenOccupied[`${ogretmen.id}-${key}`] = sinif.id;
-                if(ogretmen2) ogretmenOccupied[`${ogretmen2.id}-${key}`] = sinif.id;
-                // Gün-ders sayacını güncelle
-                if(!gunDersSayisi[gun]) gunDersSayisi[gun] = {};
-                gunDersSayisi[gun][dersId] = (gunDersSayisi[gun][dersId] || 0) + 1;
-              });
-              placed = true;
-              totalPlaced += blokSize;
+          for(let saat = parseInt(ogretmen.ilkSaatMin) || 1; saat <= maxSaat; saat++) {
+            const key = `${gun}-${saat}`;
+            if(!occupied[sinif.id][key]
+               && !ogretmenOccupied[`${ogretmen.id}-${key}`]
+               && sinifMusaitlik[key] !== false
+               && (ogretmen.musaitlik || {})[key] !== false) {
+              dagitim[key] = { dersId, ogretmenId: ogretmen.id, ogretmenId2: ogretmen2?.id || null, manuel: false, kilitli: false, blokunBozuldu: true };
+              occupied[sinif.id][key] = true;
+              ogretmenOccupied[`${ogretmen.id}-${key}`] = sinif.id;
+              if(ogretmen2) ogretmenOccupied[`${ogretmen2.id}-${key}`] = sinif.id;
+              totalPlaced++;
+              subPlaced++;
+              subOk = true;
               break;
             }
           }
-          if(placed) break;
+          if(subOk) break;
         }
-      }
-
-      if(!placed) {
-        if(blokSize > 1) {
-          warnings.push(`⚠️ <b>${sinif.ad}</b> - ${ders.ad}: ${blokSize} saatlik blok yerleştirilemedi, parçalara bölünüyor.`);
-          for(let sub = 0; sub < blokSize; sub++) {
-            let subOk = false;
-            const shuffledG = shuffleArray([...gunler]);
-            for(const gun of shuffledG) {
-              if(ogretmen.yasakGun?.includes(gun)) continue;
-              for(let saat = parseInt(ogretmen.ilkSaatMin)||1; saat <= maxSaat; saat++) {
-                const key = `${gun}-${saat}`;
-                if(!occupied[key] && !ogretmenOccupied[`${ogretmen.id}-${key}`]
-                   && sinifMusaitlik[key] !== false
-                   && (ogretmen.musaitlik||{})[key] !== false) {
-                  dagitim[key] = { dersId, ogretmenId: ogretmen.id, ogretmenId2: ogretmen2?.id || null, manuel: false, kilitli: false, blokunBozuldu: true };
-                  occupied[key] = true;
-                  ogretmenOccupied[`${ogretmen.id}-${key}`] = sinif.id;
-                  totalPlaced++;
-                  subOk = true;
-                  break;
-                }
-              }
-              if(subOk) break;
-            }
-            if(!subOk) {
-              totalFailed++;
-              warnings.push(`❌ <b>${sinif.ad}</b> - ${ders.ad}: 1 saat hiçbir yere sığmadı.`);
-            }
-          }
-        } else {
+        if(!subOk) {
           totalFailed++;
-          const kisitlar = [];
-          if(ogretmen.yasakGun?.length) kisitlar.push(`yasak gün: ${ogretmen.yasakGun.join(',')}`);
-          if(ogretmen.maxGun) kisitlar.push(`max ${ogretmen.maxGun} gün`);
-          const engel = Object.values(ogretmen.musaitlik||{}).filter(v=>v===false).length;
-          if(engel) kisitlar.push(`${engel} kapalı saat`);
-          warnings.push(`❌ <b>${sinif.ad}</b> - ${ders.ad}: Yerleştirilemedi! ${kisitlar.length ? '(' + kisitlar.join(', ') + ')' : 'Müsaitlik/yer yok'}`);
         }
       }
-    });
+      if(subPlaced > 0 && subPlaced < blokSize) {
+        warnings.push(`⚠️ <b>${task.sinif.ad}</b> — ${ders.ad}: ${blokSize} saatlik blok bütün konulamadı, ${subPlaced}/${blokSize} parçalı yerleştirildi.`);
+      }
+    } else {
+      totalFailed++;
+      // Detaylı sebep analizi
+      const sebeplers = [];
+      if(ogretmen.yasakGun?.length) sebeplers.push(`Yasak günler: ${ogretmen.yasakGun.join(', ')}`);
+      const kapaliSaat = Object.values(ogretmen.musaitlik || {}).filter(v => v === false).length;
+      if(kapaliSaat > 0) sebeplers.push(`${kapaliSaat} kapalı müsaitlik saati`);
+      if(ogretmen.maxGun) sebeplers.push(`Max ${ogretmen.maxGun} gün kısıtı`);
+      const sinifKapali = Object.values(sinifMusaitlik).filter(v => v === false).length;
+      if(sinifKapali > 0) sebeplers.push(`Sınıfta ${sinifKapali} kapalı saat`);
+      const dolenSlot = Object.values(occupied[sinif.id] || {}).length;
+      if(dolenSlot > 0) sebeplers.push(`Sınıfta ${dolenSlot} dolu hücre`);
+      warnings.push(`❌ <b>${task.sinif.ad}</b> — ${ders.ad}: ${MAX_GLOBAL_PASSES} deneme sonunda yerleştirilemedi. ${sebeplers.length ? 'Sebepler: ' + sebeplers.join(' | ') : 'Zaman dilimi kalmadı.'}`);
+    }
   });
 
   return { placed: totalPlaced, failed: totalFailed, warnings };
 }
+
 
 function distributeEvenly(n) {
   // n saati bloklara böl: mümkünse 2'li bloklar
@@ -4213,9 +4241,38 @@ function generateTopluSinifCarsaf(siniflar = appData.siniflar) {
     <div>Bu program bilgisayar tarafından otomatik oluşturulmuştur.</div>
     <div>${settings.mudurAdi || ''} — ${settings.mudurUnvan || 'Okul Müdürü'}</div>
   </div>
-  <div class="no-print" style="margin-top:20px;text-align:center;">
-    <button onclick="window.print()" style="padding:12px 28px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:700;">🖨️ Yazdır / PDF Kaydet</button>
+
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
   </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
 }
@@ -4302,9 +4359,38 @@ function generateTopluOgrCarsaf(ogretmenler = appData.ogretmenler) {
     <div>Bu program bilgisayar tarafından otomatik oluşturulmuştur.</div>
     <div>${settings.mudurAdi || ''} — ${settings.mudurUnvan || 'Okul Müdürü'}</div>
   </div>
-  <div class="no-print" style="margin-top:20px;text-align:center;">
-    <button onclick="window.print()" style="padding:12px 28px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:700;">🖨️ Yazdır / PDF Kaydet</button>
+
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
   </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
 }
@@ -4354,8 +4440,38 @@ function generateOgrPdf(ogr) {
   </table>
   <div class="footer">${settings.mudurAdi || ''}<br>${settings.mudurUnvan || 'Okul Müdürü'}</div>
   <div style="margin-top:16px;text-align:center;">
-    <button onclick="window.print()" style="padding:8px 20px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;">🖨️ Yazdır</button>
   </div>
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
+  </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
 }
@@ -4478,9 +4594,38 @@ function generateSinifElProgram(sinifId) {
   ${halfHTML}
   <div class="cut-line">✂ &nbsp;&nbsp; Kesiniz &nbsp;&nbsp; ✂</div>
   ${halfHTML}
-  <div class="no-print" style="margin-top:12px;text-align:center;">
-    <button onclick="window.print()" style="padding:8px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">🖨️ Yazdır / PDF Kaydet</button>
+
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
   </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
 }
@@ -4581,9 +4726,38 @@ function generateOgrElProgram(ogrId) {
   ${halfHTML}
   <div class="cut-line">✂ &nbsp;&nbsp; Kesiniz &nbsp;&nbsp; ✂</div>
   ${halfHTML}
-  <div class="no-print" style="margin-top:12px;text-align:center;">
-    <button onclick="window.print()" style="padding:8px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">🖨️ Yazdır / PDF Kaydet</button>
+
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
   </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
 }
@@ -4688,6 +4862,37 @@ function generateDagitimPDF(sinif, dagitim) {
   <h2>${sinif?.ad} Sınıfı Ders Programı</h2>
   <table>${tableHtml}</table>
   <div class="footer">${settings.mudurAdi || ''}<br>${settings.mudurUnvan || 'Okul Müdürü'}</div>
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
+  </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
   win.print();
@@ -6846,9 +7051,38 @@ function exportModulPDF(module) {
     <span>Toplam: ${rows.length} kayıt</span>
     <span>${settings.mudurAdi || ''} — ${settings.mudurUnvan || 'Okul Müdürü'}</span>
   </div>
-  <div class="no-print" style="margin-top:14px;text-align:center;">
-    <button onclick="window.print()" style="padding:8px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">🖨️ Yazdır / PDF Kaydet</button>
+
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
   </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
 }
@@ -6938,9 +7172,38 @@ function exportAllOgrElProgram() {
     @media print { .no-print { display: none !important; } }
   </style></head><body>
   ${allPages}
-  <div class="no-print" style="margin-top:14px;text-align:center;">
-    <button onclick="window.print()" style="padding:8px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">🖨️ Yazdır / PDF Kaydet (${appData.ogretmenler.length} öğretmen)</button>
+
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
   </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
 }
@@ -7294,8 +7557,38 @@ function exportDerslikCarsaf(derslikId) {
   </table>
   <div class="footer">${settings.mudurAdi||''}<br>${settings.mudurUnvan||'Okul Müdürü'}</div>
   <div style="margin-top:16px;text-align:center;">
-    <button onclick="window.print()" style="padding:8px 20px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;">🖨️ Yazdır</button>
   </div>
+  <div class="no-print" id="pdf-toolbar" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff;border-bottom:2px solid #e0e0e0;display:flex;align-items:center;gap:8px;padding:8px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+    <span style="font-size:13px;font-weight:700;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="pdf-title-bar">Program</span>
+    <button onclick="navigatePDF(-1)" id="btn-prev" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Önceki">◀ Önceki</button>
+    <button onclick="navigatePDF(1)" id="btn-next" style="padding:6px 14px;background:#f0f0f0;color:#333;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" title="Sonraki">Sonraki ▶</button>
+    <button onclick="window.print()" style="padding:6px 16px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🖨️ Yazdır</button>
+    <button onclick="downloadAsPDF()" style="padding:6px 16px;background:#43d99e;color:#1a1e35;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⬇️ İndir</button>
+    <button onclick="window.close()" style="padding:6px 12px;background:#f75f5f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;" title="Kapat">✕</button>
+  </div>
+  <div style="height:52px;" class="no-print"></div>
+
+  <script id="pdfNavScript">
+  (function(){
+    var idx=0,lst=[];
+    try{idx=parseInt(sessionStorage.getItem('pdfIndex')||'0');lst=JSON.parse(sessionStorage.getItem('pdfList')||'[]');}catch(e){}
+    var titleBar=document.getElementById('pdf-title-bar');
+    if(titleBar) titleBar.textContent=document.title;
+    window.navigatePDF=function(dir){var ni=idx+dir;if(ni<0||ni>=lst.length)return;sessionStorage.setItem('pdfIndex',ni);window.location.reload();};
+    window.downloadAsPDF=function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      var inner=document.createElement('div');
+      inner.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:340px;text-align:center;';
+      inner.innerHTML='<div style="font-size:32px;margin-bottom:12px">\uD83D\uDCC4<'+'/div>'+'<div style="font-size:15px;font-weight:700;margin-bottom:8px">PDF olarak \u0130ndir<'+'/div>'+'<div style="font-size:12px;color:#555;margin-bottom:16px;line-height:1.6">Yazd\u0131r penceresinde Hedef olarak <b>PDF Olarak Kaydet</b> veya <b>Microsoft Print to PDF</b> se\u00E7in. Safari: Payla\u015F &rarr; PDF&rsquo;e Aktar<'+'/div>';
+      var btn1=document.createElement('button');btn1.textContent='\uD83D\uDDA8\uFE0F Yazd\u0131r (PDF Kaydet)';btn1.style.cssText='padding:10px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;margin-right:8px;';btn1.onclick=function(){ov.remove();window.print();};
+      var btn2=document.createElement('button');btn2.textContent='Kapat';btn2.style.cssText='padding:10px 16px;background:#eee;color:#333;border:none;border-radius:8px;cursor:pointer;font-size:13px;';btn2.onclick=function(){ov.remove();};
+      inner.appendChild(btn1);inner.appendChild(btn2);ov.appendChild(inner);document.body.appendChild(ov);
+    };
+    var prev=document.getElementById('btn-prev'),next=document.getElementById('btn-next');
+    if(prev) prev.style.display=idx>0?'':'none';
+    if(next) next.style.display=idx<lst.length-1?'':'none';
+  })();
   </body></html>`);
   win.document.close();
 }
